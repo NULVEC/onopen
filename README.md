@@ -36,22 +36,17 @@ people click through.
 The standard advice for this today is *review your config files by hand, with
 the same care as code*. That is not a defence. It is the absence of one.
 
-The agent-tool surface — `.claude/`, `.cursor/`, MCP server declarations — is
-newer than most scanners, and nothing was pointed at it.
-
 ## Install
 
-```sh
-cargo install onopen
-```
-
-Or build from source:
+Build from source:
 
 ```sh
 git clone https://github.com/NULVEC/onopen
 cd onopen
 cargo build --release
 ```
+
+The binary lands in `target/release/onopen`.
 
 ## Use
 
@@ -129,4 +124,4 @@ cargo fmt --check
 
 Apache-2.0. See [LICENSE](LICENSE).
 
-Built by [Veltron](https://github.com/NULVEC).
+Built by [Veltron](https://veltron.cc).
