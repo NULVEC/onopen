@@ -1,0 +1,10 @@
+# Normalise to LF everywhere. Hook scripts break on CRLF, and the fixtures are
+# byte-compared by the parser tests.
+* text=auto eol=lf
+
+LICENSE text eol=lf
+*.rs text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+tests/fixtures/** text eol=lf

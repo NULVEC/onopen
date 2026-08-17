@@ -1,0 +1,27 @@
+[package]
+name = "onopen"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "See what runs when you open a repository. Finds config files that execute commands on folder open, install, or agent start."
+authors = ["Veltron"]
+license = "Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/NULVEC/onopen"
+homepage = "https://github.com/NULVEC/onopen"
+keywords = ["security", "supply-chain", "scanner", "static-analysis", "devsecops"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = ["/tests/fixtures", "/.github"]
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.6", features = ["derive"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+walkdir = "2.5.0"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"
