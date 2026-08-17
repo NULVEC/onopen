@@ -1,0 +1,11 @@
+/target
+**/*.rs.bk
+*.pdb
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.idea/
+
+# Nothing under .vscode/ or .claude/ is ignored on purpose: this repository is
+# a scanner for exactly those files, so they stay visible and reviewable.

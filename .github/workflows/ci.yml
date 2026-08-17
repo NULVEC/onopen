@@ -1,0 +1,57 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: test / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --all-targets
+      - run: cargo test --doc
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-targets -- -D warnings
+
+  dogfood:
+    name: scan this repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Scans the repository root only, so the deliberately hostile fixtures
+      # under tests/ are not reached. If onopen ever reports an execution path
+      # in its own real config, that is a finding about this repository and the
+      # build should stop.
+      - run: cargo run --release -- . --explain
+
+      # And the fixtures must keep tripping it, or a detection has regressed.
+      - name: fixtures still detected
+        run: |
+          if cargo run --release -- tests/fixtures/trapped --quiet; then
+            echo "::error::trapped fixture no longer reports execution paths"
+            exit 1
+          fi

