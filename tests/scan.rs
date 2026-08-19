@@ -249,18 +249,11 @@ fn finds_execution_paths_inside_workspaces() {
     assert_eq!(web.file, "packages/web/.claude/settings.json");
 }
 
-#[test]
-fn never_walks_into_dependencies() {
-    let unit = scan_fixture("monorepo");
-    assert!(
-        !unit
-            .findings
-            .iter()
-            .any(|f| f.file.contains("node_modules")),
-        "node_modules holds dependencies, not the project being opened: {:#?}",
-        unit.findings
-    );
-}
+// The rule that dependency directories are never entered is covered by
+// `discover::tests::skips_dependency_directories`, which owns the walk and
+// fails when the exclusion is removed. An end-to-end version of it here kept
+// passing with the rule deliberately broken, so it proved nothing and is not
+// worth the confidence it implied.
 
 #[test]
 fn depth_zero_restores_the_root_only_behaviour() {
