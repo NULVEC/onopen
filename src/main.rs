@@ -46,6 +46,10 @@ struct Cli {
     #[arg(long, value_delimiter = ',', value_name = "ID")]
     skip: Vec<String>,
 
+    /// How deep to look for sub-projects. 0 inspects the root alone
+    #[arg(long, value_name = "N", default_value_t = onopen::DEFAULT_MAX_DEPTH)]
+    depth: usize,
+
     /// List the available scanners and exit
     #[arg(long)]
     list_scanners: bool,
@@ -86,6 +90,7 @@ fn run(cli: &Cli) -> Result<bool> {
     let opts = ScanOptions {
         only: cli.only.clone(),
         skip: cli.skip.clone(),
+        max_depth: cli.depth,
     };
     let mut unit = scan(&root, &opts)?;
 
