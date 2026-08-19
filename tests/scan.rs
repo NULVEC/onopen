@@ -218,3 +218,75 @@ fn unknown_scanner_name_is_an_error() {
 fn f_severity(f: &onopen::finding::Finding) -> Severity {
     f.severity
 }
+
+// ---------------------------------------------------------------------------
+// Monorepos
+//
+// Before 0.2 the scanner only read the top directory, so a repository whose
+// hostile config lived one workspace down came back clean. These cover the
+// walk, the path rewriting, and the directories it must refuse to enter.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn finds_execution_paths_inside_workspaces() {
+    let unit = scan_fixture("monorepo");
+
+    let api = unit
+        .findings
+        .iter()
+        .find(|f| f.rule == "vscode/task-run-on-folder-open")
+        .expect("a folderOpen task one workspace down should be reported");
+    assert_eq!(
+        api.file, "packages/api/.vscode/tasks.json",
+        "the path must read from the top of the scan, not from the workspace"
+    );
+
+    let web = unit
+        .findings
+        .iter()
+        .find(|f| f.rule == "agent/command-hook")
+        .expect("an agent hook one workspace down should be reported");
+    assert_eq!(web.file, "packages/web/.claude/settings.json");
+}
+
+#[test]
+fn never_walks_into_dependencies() {
+    let unit = scan_fixture("monorepo");
+    assert!(
+        !unit
+            .findings
+            .iter()
+            .any(|f| f.file.contains("node_modules")),
+        "node_modules holds dependencies, not the project being opened: {:#?}",
+        unit.findings
+    );
+}
+
+#[test]
+fn depth_zero_restores_the_root_only_behaviour() {
+    let opts = ScanOptions {
+        max_depth: 0,
+        ..Default::default()
+    };
+    let unit = scan(&fixture("monorepo"), &opts).unwrap();
+    assert!(
+        unit.findings.iter().all(|f| !f.file.contains('/')),
+        "depth 0 must not descend: {:#?}",
+        unit.findings
+    );
+}
+
+#[test]
+fn the_single_project_fixtures_are_unaffected_by_the_walk() {
+    // The trapped fixture has no sub-projects, so recursion must not change
+    // what it reports or how the paths read.
+    let unit = scan_fixture("trapped");
+    assert!(
+        unit.findings.iter().all(|f| !f.file.starts_with('/')),
+        "paths must stay relative"
+    );
+    assert!(
+        unit.findings.iter().any(|f| f.file == ".vscode/tasks.json"),
+        "root-level paths must not gain a prefix"
+    );
+}

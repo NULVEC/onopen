@@ -102,6 +102,21 @@ impl ScanUnit {
         self.findings.extend(other.findings);
         self.cleared.extend(other.cleared);
     }
+
+    /// Rewrite every path to be relative to the top of the scan rather than to
+    /// the sub-project it was found in, so `tasks.json` reported from a
+    /// workspace reads as `packages/api/.vscode/tasks.json`.
+    pub fn prefix_paths(&mut self, prefix: &str) {
+        if prefix.is_empty() {
+            return;
+        }
+        for finding in &mut self.findings {
+            finding.file = format!("{prefix}/{}", finding.file);
+        }
+        for cleared in &mut self.cleared {
+            *cleared = format!("{prefix}/{cleared}");
+        }
+    }
 }
 
 /// Collapse whitespace and cut long commands so one finding stays one line.

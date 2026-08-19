@@ -57,6 +57,7 @@ onopen --explain            # say why each finding executes
 onopen --quiet              # hide files that came back clean
 onopen --json               # machine-readable output
 onopen --only agents,mcp    # narrow the run
+onopen --depth 0            # the root alone, ignoring sub-projects
 onopen --list-scanners      # what is available
 ```
 
@@ -99,10 +100,11 @@ Onopen reports *execution paths*, not intent. A `postinstall` that builds a
 native module and one that exfiltrates your `.npmrc` both show up; the tool
 tells you where to look, it doesn't judge what it finds.
 
-**It inspects the repository root, not every directory below it.** That matches
-what an editor loads when you open the folder, but it means a monorepo needs a
-run per workspace for now. Nested `.devcontainer/` and hook directories are the
-exception and are walked.
+It walks sub-projects as well as the root, because a monorepo hides a
+`folderOpen` task one workspace down and reporting only the top directory calls
+that repository clean. Dependency directories — `node_modules`, `vendor`,
+`target` and their kin — are never entered: what is in them is not the project
+you are opening. `--depth 0` restores the root-only behaviour.
 
 It does not currently read: `.idea/` run configurations, `.github/workflows`
 trigger analysis, Gradle or `setup.py` build scripts, or agent instruction files

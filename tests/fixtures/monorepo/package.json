@@ -1,0 +1,8 @@
+{
+  "name": "monorepo-root",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "turbo build"
+  }
+}
