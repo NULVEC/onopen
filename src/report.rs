@@ -14,6 +14,7 @@ pub struct Report {
     pub version: &'static str,
     pub root: String,
     pub findings: Vec<Finding>,
+    pub suppressed: Vec<Finding>,
     pub summary: Summary,
 }
 
@@ -23,6 +24,9 @@ pub struct Summary {
     pub deferred: usize,
     pub note: usize,
     pub files_cleared: usize,
+    /// Reported even when nothing else is, so a repository cannot be made to
+    /// look clean by an ignore file without saying so.
+    pub suppressed: usize,
 }
 
 impl Report {
@@ -37,6 +41,7 @@ impl Report {
 
         let mut summary = Summary {
             files_cleared: unit.cleared.len(),
+            suppressed: unit.suppressed.len(),
             ..Default::default()
         };
         for f in &unit.findings {
@@ -52,6 +57,7 @@ impl Report {
             version: env!("CARGO_PKG_VERSION"),
             root,
             findings: unit.findings,
+            suppressed: unit.suppressed,
             summary,
         }
     }
@@ -70,6 +76,7 @@ pub struct HumanOptions {
     pub explain: bool,
     pub quiet: bool,
     pub cleared: Vec<String>,
+    pub show_suppressed: bool,
 }
 
 pub fn render_human(report: &Report, opts: &HumanOptions) -> String {
@@ -88,7 +95,16 @@ pub fn render_human(report: &Report, opts: &HumanOptions) -> String {
     ));
 
     if report.findings.is_empty() && (opts.quiet || opts.cleared.is_empty()) {
-        out.push_str("  nothing executes on open.\n\n");
+        out.push_str("  nothing executes on open.\n");
+        // An ignore file must never be able to turn a repository clean in
+        // silence: whatever it hid gets said here too.
+        if report.summary.suppressed > 0 {
+            out.push_str(&suppressed_note(report, &c));
+        }
+        out.push('\n');
+        if opts.show_suppressed {
+            out.push_str(&suppressed_list(report, &c));
+        }
         return out;
     }
 
@@ -154,6 +170,43 @@ pub fn render_human(report: &Report, opts: &HumanOptions) -> String {
 
     out.push('\n');
     out.push_str(&summary_line(report, &c));
+    if report.summary.suppressed > 0 {
+        out.push_str(&suppressed_note(report, &c));
+    }
+    out.push('\n');
+    if opts.show_suppressed {
+        out.push_str(&suppressed_list(report, &c));
+    }
+    out
+}
+
+/// One line naming how much an ignore file silenced. Printed whenever
+/// anything was silenced, including on an otherwise clean report.
+fn suppressed_note(report: &Report, c: &impl Fn(&'static str) -> &'static str) -> String {
+    let n = report.summary.suppressed;
+    let noun = if n == 1 { "finding" } else { "findings" };
+    format!(
+        "  {}{n} {noun} silenced by an ignore file — run with --show-suppressed to read them{}\n",
+        c(DIM),
+        c(RESET)
+    )
+}
+
+fn suppressed_list(report: &Report, c: &impl Fn(&'static str) -> &'static str) -> String {
+    if report.suppressed.is_empty() {
+        return String::new();
+    }
+    let mut out = format!("  {}silenced:{}\n", c(DIM), c(RESET));
+    for f in &report.suppressed {
+        out.push_str(&format!(
+            "  {}- {}  {}  {}{}\n",
+            c(DIM),
+            f.file,
+            f.trigger,
+            f.command,
+            c(RESET)
+        ));
+    }
     out.push('\n');
     out
 }

@@ -84,6 +84,10 @@ impl Finding {
 #[derive(Debug, Default)]
 pub struct ScanUnit {
     pub findings: Vec<Finding>,
+    /// Findings an ignore file silenced, kept so the report can say how many
+    /// there were. Hiding them without counting them would let a repository
+    /// look clean by configuration.
+    pub suppressed: Vec<Finding>,
     /// Files that were parsed and came back with no execution path. Reported so
     /// the output distinguishes "clean" from "never looked".
     pub cleared: Vec<String>,
@@ -100,6 +104,7 @@ impl ScanUnit {
 
     pub fn merge(&mut self, other: ScanUnit) {
         self.findings.extend(other.findings);
+        self.suppressed.extend(other.suppressed);
         self.cleared.extend(other.cleared);
     }
 
@@ -111,6 +116,9 @@ impl ScanUnit {
             return;
         }
         for finding in &mut self.findings {
+            finding.file = format!("{prefix}/{}", finding.file);
+        }
+        for finding in &mut self.suppressed {
             finding.file = format!("{prefix}/{}", finding.file);
         }
         for cleared in &mut self.cleared {
