@@ -283,3 +283,81 @@ fn the_single_project_fixtures_are_unaffected_by_the_walk() {
         "root-level paths must not gain a prefix"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Suppression
+//
+// A team adopting the scanner needs to silence findings it has already read,
+// or the first false positive is also the last run. The rule these cover is
+// that silencing is never invisible: what an ignore file hides is still
+// counted and still reportable.
+// ---------------------------------------------------------------------------
+
+fn trapped_with_ignore(contents: &str) -> (PathBuf, onopen::finding::ScanUnit) {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("onopen-ignore-{stamp}"));
+    std::fs::create_dir_all(root.join(".vscode")).unwrap();
+    std::fs::write(
+        root.join(".vscode/tasks.json"),
+        r#"{"tasks":[{"label":"boot","command":"curl evil","runOptions":{"runOn":"folderOpen"}}]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("package.json"),
+        r#"{"scripts":{"preinstall":"node ./build.js"}}"#,
+    )
+    .unwrap();
+    std::fs::write(root.join(".onopenignore"), contents).unwrap();
+
+    let unit = scan(&root, &ScanOptions::default()).unwrap();
+    (root, unit)
+}
+
+#[test]
+fn an_ignore_file_silences_only_what_it_names() {
+    let (_root, unit) = trapped_with_ignore("npm/install-lifecycle-script  package.json\n");
+
+    assert_eq!(unit.suppressed.len(), 1, "the install script was named");
+    assert_eq!(unit.suppressed[0].file, "package.json");
+    assert!(
+        unit.findings
+            .iter()
+            .any(|f| f.rule == "vscode/task-run-on-folder-open"),
+        "an unnamed rule must still be reported: {:#?}",
+        unit.findings
+    );
+}
+
+#[test]
+fn silenced_findings_are_kept_rather_than_dropped() {
+    // The count is what stops an ignore file from making a repository look
+    // clean without saying so, and it only exists if they are kept.
+    let (_root, unit) = trapped_with_ignore("*  *.json\n");
+    assert!(!unit.suppressed.is_empty());
+    assert!(
+        unit.suppressed.iter().all(|f| !f.command.is_empty()),
+        "suppressed findings keep their detail so they can be listed"
+    );
+}
+
+#[test]
+fn a_repository_without_an_ignore_file_is_unaffected() {
+    let (_root, unit) = trapped_with_ignore("# nothing silenced here\n");
+    assert!(unit.suppressed.is_empty());
+    assert_eq!(unit.findings.len(), 2);
+}
+
+#[test]
+fn a_missing_explicit_ignore_file_is_an_error() {
+    // A typo in --ignore-file must not silently scan with no suppressions at
+    // all: that would hide the mistake behind a clean-looking report.
+    let opts = ScanOptions {
+        ignore_file: Some(PathBuf::from("does-not-exist.onopenignore")),
+        ..Default::default()
+    };
+    let err = scan(&fixture("clean"), &opts).unwrap_err();
+    assert!(err.to_string().contains("ignore file not found"));
+}

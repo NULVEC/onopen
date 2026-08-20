@@ -58,8 +58,35 @@ onopen --quiet              # hide files that came back clean
 onopen --json               # machine-readable output
 onopen --only agents,mcp    # narrow the run
 onopen --depth 0            # the root alone, ignoring sub-projects
+onopen --show-suppressed    # read what an ignore file silenced
 onopen --list-scanners      # what is available
 ```
+
+## Silencing what you have already read
+
+The first false positive is otherwise also the last run. Put an
+`.onopenignore` at the root:
+
+```
+# <rule-id | *>   <path glob | *>   # why
+
+npm/install-lifecycle-script  package.json      # reviewed, builds a native module
+agent/command-hook            tools/**         # our own bootstrap hooks
+*                             vendor/**        # not our code
+```
+
+**Silencing is never invisible.** Whatever an ignore file hides is still
+counted, and the count is printed even on a report that is otherwise clean:
+
+```
+  nothing executes on open.
+  2 findings silenced by an ignore file — run with --show-suppressed to read them
+```
+
+A scanner that can be told to look away without saying so is worse than no
+scanner, because it reports clean with authority. For the same reason
+`*  *` is refused: silencing everything is not configuration, it is turning
+the tool off, and there is already a way to not run it.
 
 **Exit codes.** `0` nothing runs on its own · `1` at least one immediate
 execution path · `2` the scan itself failed. Use `--no-fail` to always exit `0`.

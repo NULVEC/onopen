@@ -50,6 +50,14 @@ struct Cli {
     #[arg(long, value_name = "N", default_value_t = onopen::DEFAULT_MAX_DEPTH)]
     depth: usize,
 
+    /// Read silenced findings from here instead of ./.onopenignore
+    #[arg(long, value_name = "FILE")]
+    ignore_file: Option<PathBuf>,
+
+    /// List the findings an ignore file silenced, and the line that did it
+    #[arg(long)]
+    show_suppressed: bool,
+
     /// List the available scanners and exit
     #[arg(long)]
     list_scanners: bool,
@@ -91,6 +99,7 @@ fn run(cli: &Cli) -> Result<bool> {
         only: cli.only.clone(),
         skip: cli.skip.clone(),
         max_depth: cli.depth,
+        ignore_file: cli.ignore_file.clone(),
     };
     let mut unit = scan(&root, &opts)?;
 
@@ -104,6 +113,7 @@ fn run(cli: &Cli) -> Result<bool> {
             explain: cli.explain,
             quiet: cli.quiet,
             cleared,
+            show_suppressed: cli.show_suppressed,
         };
         print!("{}", report::render_human(&report, &opts));
     }

@@ -18,11 +18,13 @@ pub mod finding;
 pub mod jsonc;
 pub mod report;
 pub mod scanners;
+pub mod suppress;
 
 use anyhow::{Result, bail};
 use finding::ScanUnit;
 use scanners::Ctx;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use suppress::Suppressions;
 
 /// How much of the tree to read and which scanners to run.
 #[derive(Debug, Clone)]
@@ -33,6 +35,9 @@ pub struct ScanOptions {
     /// How many directories below the root to look for sub-projects.
     /// 0 inspects the root alone, which is what versions before 0.2 did.
     pub max_depth: usize,
+    /// Where to read silenced findings from. `None` looks for `.onopenignore`
+    /// in the scan root and carries on without one if it is not there.
+    pub ignore_file: Option<PathBuf>,
 }
 
 /// Deep enough for the workspace layouts people actually use
@@ -45,6 +50,7 @@ impl Default for ScanOptions {
             only: Vec::new(),
             skip: Vec::new(),
             max_depth: DEFAULT_MAX_DEPTH,
+            ignore_file: None,
         }
     }
 }
@@ -93,6 +99,19 @@ pub fn scan(root: &Path, opts: &ScanOptions) -> Result<ScanUnit> {
             found.prefix_paths(&prefix);
             unit.merge(found);
         }
+    }
+
+    // Silencing happens once, at the end, against paths that already read from
+    // the top of the scan — so an ignore pattern means the same thing whether
+    // the finding came from the root or from a workspace six levels down.
+    let suppressions = Suppressions::load(root, opts.ignore_file.as_deref())?;
+    if !suppressions.is_empty() {
+        let (kept, silenced): (Vec<_>, Vec<_>) = unit
+            .findings
+            .drain(..)
+            .partition(|f| suppressions.matching_line(f).is_none());
+        unit.findings = kept;
+        unit.suppressed = silenced;
     }
 
     Ok(unit)
