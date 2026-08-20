@@ -26,6 +26,10 @@ struct Cli {
     #[arg(long)]
     json: bool,
 
+    /// Emit SARIF 2.1.0, for GitHub code scanning and other SARIF consumers
+    #[arg(long, conflicts_with = "json")]
+    sarif: bool,
+
     /// Print why each finding is an execution path
     #[arg(short, long)]
     explain: bool,
@@ -106,7 +110,9 @@ fn run(cli: &Cli) -> Result<bool> {
     let cleared = std::mem::take(&mut unit.cleared);
     let report = Report::build(display_path(&cli.path, &root), unit);
 
-    if cli.json {
+    if cli.sarif {
+        println!("{}", onopen::sarif::render(&report));
+    } else if cli.json {
         println!("{}", report::render_json(&report));
     } else {
         let opts = HumanOptions {

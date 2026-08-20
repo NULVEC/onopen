@@ -17,6 +17,7 @@ pub mod discover;
 pub mod finding;
 pub mod jsonc;
 pub mod report;
+pub mod sarif;
 pub mod scanners;
 pub mod suppress;
 
