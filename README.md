@@ -56,6 +56,7 @@ onopen ./some-repo          # scan a path
 onopen --explain            # say why each finding executes
 onopen --quiet              # hide files that came back clean
 onopen --json               # machine-readable output
+onopen --sarif              # SARIF 2.1.0, for GitHub code scanning
 onopen --only agents,mcp    # narrow the run
 onopen --depth 0            # the root alone, ignoring sub-projects
 onopen --show-suppressed    # read what an ignore file silenced
@@ -87,6 +88,11 @@ A scanner that can be told to look away without saying so is worse than no
 scanner, because it reports clean with authority. For the same reason
 `*  *` is refused: silencing everything is not configuration, it is turning
 the tool off, and there is already a way to not run it.
+
+SARIF puts each finding on the line it came from, in the review someone is
+already reading, rather than in log output nobody opens. Silenced findings are
+included and marked as suppressed rather than dropped, so the machine format
+keeps the same promise the human one makes.
 
 **Exit codes.** `0` nothing runs on its own · `1` at least one immediate
 execution path · `2` the scan itself failed. Use `--no-fail` to always exit `0`.
