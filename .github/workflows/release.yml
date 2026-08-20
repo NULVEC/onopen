@@ -103,3 +103,28 @@ jobs:
           files: dist/*
           generate_release_notes: true
           fail_on_unmatched_files: true
+
+  # `uses: NULVEC/onopen@v0` is how an action is normally pinned, and it only
+  # works if a major tag follows the latest release in that series. Moving it
+  # is deliberate: someone who pinned @v0 asked for the newest v0.x.
+  major-tag:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Move the major tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          major="v${GITHUB_REF_NAME#v}"
+          major="${major%%.*}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "${major}" "${GITHUB_SHA}"
+          git push -f origin "${major}"
