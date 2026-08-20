@@ -1,0 +1,140 @@
+name: "Onopen"
+description: "See what runs when you open a repository: editor tasks, agent hooks, MCP servers, install scripts and git hooks."
+author: "Veltron"
+
+branding:
+  icon: "terminal"
+  color: "blue"
+
+inputs:
+  path:
+    description: "Directory to scan, relative to the workspace."
+    required: false
+    default: "."
+  version:
+    description: "Release of onopen to run. A tag like v0.2.0, or `latest`."
+    required: false
+    default: "latest"
+  depth:
+    description: "How deep to look for sub-projects. 0 inspects the root alone."
+    required: false
+    default: "6"
+  ignore-file:
+    description: "Path to an ignore file. Defaults to .onopenignore in the scanned directory."
+    required: false
+    default: ""
+  fail-on-findings:
+    description: >-
+      Fail the job when something runs on its own. Set to false to report
+      without blocking, which is the sensible first step on an existing
+      repository.
+    required: false
+    default: "true"
+  sarif-file:
+    description: "Where to write the SARIF report."
+    required: false
+    default: "onopen.sarif"
+  upload-sarif:
+    description: >-
+      Upload the SARIF to code scanning. Needs `security-events: write`, and is
+      unavailable on private repositories without GitHub Advanced Security.
+    required: false
+    default: "true"
+
+outputs:
+  sarif-file:
+    description: "Path to the SARIF report that was written."
+    value: ${{ inputs.sarif-file }}
+  exit-code:
+    description: "0 nothing runs on its own, 1 something does."
+    value: ${{ steps.scan.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install onopen
+      shell: bash
+      env:
+        REPO: NULVEC/onopen
+        VERSION: ${{ inputs.version }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+
+        case "${RUNNER_OS}-${RUNNER_ARCH}" in
+          Linux-X64)   target="x86_64-unknown-linux-gnu"; archive="tar.gz" ;;
+          macOS-X64)   target="x86_64-apple-darwin";      archive="tar.gz" ;;
+          macOS-ARM64) target="aarch64-apple-darwin";     archive="tar.gz" ;;
+          Windows-X64) target="x86_64-pc-windows-msvc";   archive="zip"    ;;
+          *)
+            echo "::error::onopen has no published binary for ${RUNNER_OS}-${RUNNER_ARCH}"
+            exit 1
+            ;;
+        esac
+
+        if [ "${VERSION}" = "latest" ]; then
+          tag="$(gh release view --repo "${REPO}" --json tagName --jq .tagName)"
+        else
+          tag="${VERSION}"
+        fi
+        version="${tag#v}"
+        stem="onopen-${version}-${target}"
+
+        mkdir -p "${RUNNER_TEMP}/onopen"
+        cd "${RUNNER_TEMP}/onopen"
+        gh release download "${tag}" --repo "${REPO}" \
+          --pattern "${stem}.${archive}" --pattern "SHA256SUMS"
+
+        # The tool's whole argument is that you should know what you are about
+        # to run. Checking the digest before running it is the least it can do.
+        # macOS runners ship shasum rather than sha256sum.
+        if command -v sha256sum > /dev/null; then
+          sha256sum --ignore-missing --check SHA256SUMS
+        else
+          grep " ${stem}.${archive}\$" SHA256SUMS | shasum -a 256 --check -
+        fi
+
+        if [ "${archive}" = "zip" ]; then
+          unzip -q "${stem}.zip"
+        else
+          tar -xzf "${stem}.tar.gz"
+        fi
+        echo "${RUNNER_TEMP}/onopen/${stem}" >> "${GITHUB_PATH}"
+
+    - name: Scan
+      id: scan
+      shell: bash
+      env:
+        SCAN_PATH: ${{ inputs.path }}
+        DEPTH: ${{ inputs.depth }}
+        IGNORE_FILE: ${{ inputs.ignore-file }}
+        SARIF_FILE: ${{ inputs.sarif-file }}
+      run: |
+        set -uo pipefail
+        args=("${SCAN_PATH}" "--depth" "${DEPTH}")
+        if [ -n "${IGNORE_FILE}" ]; then
+          args+=("--ignore-file" "${IGNORE_FILE}")
+        fi
+
+        # Human output into the log so the run is readable on its own, then
+        # SARIF for the Security tab.
+        onopen "${args[@]}" --explain --no-fail
+        onopen "${args[@]}" --sarif --no-fail > "${SARIF_FILE}"
+
+        onopen "${args[@]}" --quiet > /dev/null 2>&1
+        code=$?
+        echo "exit-code=${code}" >> "${GITHUB_OUTPUT}"
+
+    - name: Upload SARIF
+      if: ${{ inputs.upload-sarif == 'true' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif-file }}
+        category: onopen
+
+    - name: Fail on findings
+      if: ${{ inputs.fail-on-findings == 'true' && steps.scan.outputs.exit-code != '0' }}
+      shell: bash
+      run: |
+        echo "::error::onopen found configuration that executes on open. Read the scan output above."
+        exit 1
