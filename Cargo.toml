@@ -1,6 +1,6 @@
 [package]
 name = "onopen"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 description = "See what runs when you open a repository. Finds config files that execute commands on folder open, install, or agent start."
@@ -11,7 +11,18 @@ repository = "https://github.com/NULVEC/onopen"
 homepage = "https://veltron.cc/onopen"
 keywords = ["security", "supply-chain", "scanner", "static-analysis", "devsecops"]
 categories = ["command-line-utilities", "development-tools"]
-exclude = ["/tests/fixtures", "/.github"]
+# The crate ships what someone consuming onopen needs. The test suite stays in
+# the repository: its fixtures are a deliberately hostile repository, and a
+# published package carrying files full of `curl | sh` is one that trips
+# scanners for no benefit. Shipping the tests without their fixtures would be
+# worse still — they would simply fail.
+exclude = [
+    "/tests",
+    "/.github",
+    "/.onopenignore",
+    "/.gitattributes",
+    "/.gitignore",
+]
 
 [dependencies]
 anyhow = "1.0.104"
