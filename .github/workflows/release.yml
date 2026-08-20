@@ -1,0 +1,105 @@
+name: release
+
+# Tagging is the only trigger. A release should be a deliberate act, not
+# something that happens because a commit landed on main.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # A binary that fails its own test suite has no business being published.
+      - run: cargo test --all-targets
+
+      - run: cargo build --release --target ${{ matrix.target }}
+
+      # One archive shape per platform, named so a download URL can be built
+      # from the target triple alone.
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          stem="onopen-${version}-${{ matrix.target }}"
+          mkdir -p "dist/${stem}"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp "target/${{ matrix.target }}/release/onopen.exe" "dist/${stem}/"
+          else
+            cp "target/${{ matrix.target }}/release/onopen" "dist/${stem}/"
+          fi
+          cp README.md LICENSE "dist/${stem}/"
+          cd dist
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a "${stem}.zip" "${stem}" > /dev/null
+          else
+            tar -czf "${stem}.tar.gz" "${stem}"
+          fi
+          rm -rf "${stem}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # Provenance is the point: a security tool asking to be run on other
+      # people's repositories should be able to prove which workflow, from
+      # which commit, produced the binary they downloaded.
+      id-token: write
+      attestations: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "dist/onopen-*"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

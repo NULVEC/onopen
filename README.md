@@ -127,6 +127,33 @@ Config files here are parsed as JSONC, because VS Code and devcontainer files
 legally contain comments and trailing commas — and a scanner that trips over a
 comment reports clean on a file it never read.
 
+## In CI
+
+```yaml
+# .github/workflows/onopen.yml
+name: onopen
+on: [push, pull_request]
+
+permissions:
+  contents: read
+  security-events: write   # so findings reach the Security tab
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: NULVEC/onopen@v0
+```
+
+On a repository that already has findings, start with
+`fail-on-findings: false`: the report still reaches the Security tab, the
+build stays green, and you decide what to silence before turning the gate on.
+
+The action verifies the digest of the binary it downloads before running it.
+A tool whose argument is that you should know what you are about to run has no
+business skipping that step itself.
+
 ## Known limits
 
 Onopen reports *execution paths*, not intent. A `postinstall` that builds a
