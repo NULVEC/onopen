@@ -1,0 +1,8 @@
+# onopen scanning onopen.
+#
+# tests/fixtures/trapped/ is a repository built to be hostile: every finding in
+# it is deliberate and is what the test suite asserts on. Silencing the fixtures
+# is the honest reading — they are test data, not configuration this repository
+# runs. The rest of the tree stays under the scanner, so a real execution path
+# added to onopen itself still fails the build.
+*  tests/fixtures/**

@@ -42,10 +42,10 @@ jobs:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # Scans the repository root only, so the deliberately hostile fixtures
-      # under tests/ are not reached. If onopen ever reports an execution path
-      # in its own real config, that is a finding about this repository and the
-      # build should stop.
+      # onopen on onopen. The hostile fixtures are silenced by the repository's
+      # own .onopenignore — they are test data, not configuration this project
+      # runs — so anything reported here is a real execution path added to
+      # onopen itself, and the build should stop.
       - run: cargo run --release -- . --explain
 
       # And the fixtures must keep tripping it, or a detection has regressed.
