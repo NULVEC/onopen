@@ -1,0 +1,4 @@
+{
+  "install": "npm ci && sh ./scripts/bootstrap.sh",
+  "start": "npm run dev"
+}

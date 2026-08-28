@@ -10,13 +10,25 @@
 //! the human format makes: that an ignore file can hide a finding from the
 //! report but never from the count.
 
-use crate::finding::{Finding, Severity};
+use crate::finding::{Finding, Severity, Unreadable};
 use crate::report::Report;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 const SCHEMA: &str = "https://json.schemastore.org/sarif-2.1.0.json";
 const INFO_URI: &str = "https://veltron.cc/onopen";
+
+/// A file the scan could not read is not a detection — it is the absence of
+/// one. It still belongs in the document: the Security tab is where a reviewer
+/// would otherwise never learn that a config file in this diff went unread, and
+/// a review that does not know what it missed is the one this tool exists to
+/// prevent.
+const UNREADABLE_RULE: &str = "onopen/unreadable-config";
+const UNREADABLE_NOTE: &str = concat!(
+    "This configuration file exists and onopen could not read it. ",
+    "The editor or agent that opens this repository may parse it anyway, ",
+    "so what it contains is unknown rather than harmless."
+);
 
 fn level(severity: Severity) -> &'static str {
     match severity {
@@ -35,7 +47,8 @@ fn rules(report: &Report) -> Vec<Value> {
         seen.entry(finding.rule).or_insert(finding);
     }
 
-    seen.into_iter()
+    let mut rules: Vec<Value> = seen
+        .into_iter()
         .map(|(id, example)| {
             json!({
                 "id": id,
@@ -46,7 +59,33 @@ fn rules(report: &Report) -> Vec<Value> {
                 "helpUri": INFO_URI,
             })
         })
-        .collect()
+        .collect();
+
+    if !report.unreadable.is_empty() {
+        rules.push(json!({
+            "id": UNREADABLE_RULE,
+            "name": UNREADABLE_RULE,
+            "shortDescription": { "text": "Configuration file could not be read" },
+            "fullDescription": { "text": UNREADABLE_NOTE },
+            "defaultConfiguration": { "level": "error" },
+            "helpUri": INFO_URI,
+        }));
+    }
+
+    rules
+}
+
+fn unreadable_result(entry: &Unreadable) -> Value {
+    json!({
+        "ruleId": UNREADABLE_RULE,
+        "level": "error",
+        "message": { "text": format!("not read: {}", entry.reason) },
+        "locations": [{
+            "physicalLocation": {
+                "artifactLocation": { "uri": entry.file },
+            }
+        }],
+    })
 }
 
 fn result(finding: &Finding, suppressed: bool) -> Value {
@@ -81,6 +120,7 @@ pub fn render(report: &Report) -> String {
         .iter()
         .map(|f| result(f, false))
         .chain(report.suppressed.iter().map(|f| result(f, true)))
+        .chain(report.unreadable.iter().map(unreadable_result))
         .collect();
 
     let document = json!({
@@ -117,7 +157,7 @@ mod tests {
             ScanUnit {
                 findings,
                 suppressed,
-                cleared: Vec::new(),
+                ..Default::default()
             },
         )
     }

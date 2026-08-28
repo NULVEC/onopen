@@ -8,6 +8,7 @@
 use super::{Ctx, Scanner};
 use crate::finding::{Finding, ScanUnit, Severity};
 use walkdir::WalkDir;
+use yaml_rust2::{Yaml, YamlLoader};
 
 pub struct GitHooks;
 
@@ -24,6 +25,7 @@ impl Scanner for GitHooks {
         scan_config(ctx, &mut unit);
         scan_active_hooks(ctx, &mut unit);
         scan_checked_in(ctx, &mut unit);
+        scan_pre_commit(ctx, &mut unit);
         unit
     }
 }
@@ -31,7 +33,7 @@ impl Scanner for GitHooks {
 /// `core.hooksPath` redirects hooks to a directory that can live in the repo.
 fn scan_config(ctx: &Ctx, unit: &mut ScanUnit) {
     let rel = ".git/config";
-    let Some(text) = ctx.read(rel) else {
+    let Some(text) = ctx.read(rel, unit) else {
         return;
     };
 
@@ -72,11 +74,16 @@ fn scan_active_hooks(ctx: &Ctx, unit: &mut ScanUnit) {
         if name.ends_with(".sample") {
             continue;
         }
+        let rel = ctx.rel(entry.path());
+        let preview = ctx
+            .read(&rel, unit)
+            .and_then(|text| first_meaningful_line(&text))
+            .unwrap_or_else(|| "(unreadable)".into());
         unit.push(Finding::new(
             "git/active-hook",
-            ctx.rel(entry.path()),
+            rel,
             format!("git hook: {name}"),
-            first_meaningful_line(entry.path()),
+            preview,
             Severity::Immediate,
             "Runs on the matching git operation in this clone right now.",
         ));
@@ -105,11 +112,16 @@ fn scan_checked_in(ctx: &Ctx, unit: &mut ScanUnit) {
                 continue;
             }
             found_any = true;
+            let rel = ctx.rel(entry.path());
+            let preview = ctx
+                .read(&rel, unit)
+                .and_then(|text| first_meaningful_line(&text))
+                .unwrap_or_else(|| "(unreadable)".into());
             unit.push(Finding::new(
                 "git/checked-in-hook",
-                ctx.rel(entry.path()),
+                rel,
                 format!("hook script: {name}"),
-                first_meaningful_line(entry.path()),
+                preview,
                 Severity::Deferred,
                 "Becomes live once core.hooksPath or a setup step points git at it.",
             ));
@@ -123,13 +135,67 @@ fn scan_checked_in(ctx: &Ctx, unit: &mut ScanUnit) {
 
 /// Show the first line that is not a shebang, comment or blank — usually the
 /// first thing the hook actually does.
-fn first_meaningful_line(path: &std::path::Path) -> String {
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return "(unreadable)".into();
-    };
+fn first_meaningful_line(text: &str) -> Option<String> {
     text.lines()
         .map(str::trim)
         .find(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with("#!"))
-        .unwrap_or("(no statements)")
-        .to_string()
+        .map(ToOwned::to_owned)
+}
+
+fn yget<'a>(value: &'a Yaml, key: &str) -> Option<&'a Yaml> {
+    value.as_hash()?.get(&Yaml::String(key.into()))
+}
+
+fn scan_pre_commit(ctx: &Ctx, unit: &mut ScanUnit) {
+    let rel = ".pre-commit-config.yaml";
+    let Some(source) = ctx.read(rel, unit) else {
+        return;
+    };
+    let doc = match YamlLoader::load_from_str(&source) {
+        Ok(mut docs) if !docs.is_empty() => docs.remove(0),
+        Ok(_) => {
+            unit.clear(rel);
+            return;
+        }
+        Err(e) => {
+            unit.mark_unreadable(rel, format!("not parseable as YAML: {e}"));
+            return;
+        }
+    };
+    let before = unit.findings.len();
+    for repo in yget(&doc, "repos")
+        .and_then(Yaml::as_vec)
+        .into_iter()
+        .flatten()
+    {
+        let local_repo = yget(repo, "repo").and_then(Yaml::as_str) == Some("local");
+        for hook in yget(repo, "hooks")
+            .and_then(Yaml::as_vec)
+            .into_iter()
+            .flatten()
+        {
+            let system = yget(hook, "language").and_then(Yaml::as_str) == Some("system");
+            if !local_repo && !system {
+                continue;
+            }
+            let Some(entry) = yget(hook, "entry")
+                .and_then(Yaml::as_str)
+                .filter(|s| !s.trim().is_empty())
+            else {
+                continue;
+            };
+            let id = yget(hook, "id").and_then(Yaml::as_str).unwrap_or("unnamed");
+            unit.push(Finding::new(
+                "git/pre-commit-local-entry",
+                rel,
+                format!("local hook: {id}"),
+                entry,
+                Severity::Deferred,
+                "Pre-commit can install this repository-defined command as a local hook.",
+            ));
+        }
+    }
+    if unit.findings.len() == before {
+        unit.clear(rel);
+    }
 }

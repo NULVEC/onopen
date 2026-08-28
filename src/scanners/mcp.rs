@@ -31,7 +31,7 @@ impl Scanner for Mcp {
         let mut unit = ScanUnit::default();
 
         for rel in MCP_FILES {
-            let Some(doc) = ctx.json(rel) else {
+            let Some(doc) = ctx.json(rel, &mut unit) else {
                 continue;
             };
 

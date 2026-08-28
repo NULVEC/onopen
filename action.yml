@@ -12,7 +12,7 @@ inputs:
     required: false
     default: "."
   version:
-    description: "Release of onopen to run. A tag like v0.2.0, or `latest`."
+    description: "Release of onopen to run. A tag like v0.3.0, or `latest`."
     required: false
     default: "latest"
   depth:
@@ -46,7 +46,7 @@ outputs:
     description: "Path to the SARIF report that was written."
     value: ${{ inputs.sarif-file }}
   exit-code:
-    description: "0 nothing runs on its own, 1 something does."
+    description: "0 clean, 1 an immediate finding, 2 the scan is incomplete or failed."
     value: ${{ steps.scan.outputs.exit-code }}
 
 runs:
@@ -127,13 +127,20 @@ runs:
 
     - name: Upload SARIF
       if: ${{ inputs.upload-sarif == 'true' }}
-      uses: github/codeql-action/upload-sarif@v3
+      uses: github/codeql-action/upload-sarif@42947a340483f03ba47bb1a039b2c519aab3df85 # v3
       with:
         sarif_file: ${{ inputs.sarif-file }}
         category: onopen
 
+    - name: Fail on incomplete scan
+      if: ${{ steps.scan.outputs.exit-code == '2' }}
+      shell: bash
+      run: |
+        echo "::error::onopen could not complete the scan. Read the unreadable/error output above."
+        exit 2
+
     - name: Fail on findings
-      if: ${{ inputs.fail-on-findings == 'true' && steps.scan.outputs.exit-code != '0' }}
+      if: ${{ inputs.fail-on-findings == 'true' && steps.scan.outputs.exit-code == '1' }}
       shell: bash
       run: |
         echo "::error::onopen found configuration that executes on open. Read the scan output above."

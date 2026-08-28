@@ -13,6 +13,7 @@
 use crate::finding::Finding;
 use anyhow::{Context, Result};
 use globset::{Glob, GlobMatcher};
+use std::cell::Cell;
 use std::path::Path;
 
 /// The file read from the scan root unless another path is given.
@@ -35,6 +36,13 @@ struct Rule {
     path: Option<GlobMatcher>,
     /// The line it came from, for `--show-suppressed`.
     source_line: usize,
+    /// Whether this line ever silenced anything.
+    ///
+    /// A line that never matches is the quiet failure of an ignore file: a rule
+    /// id that got renamed, or a path that moved. The team believes a finding is
+    /// silenced deliberately, and it is silenced by accident — or, worse, not
+    /// silenced at all and simply never read again.
+    used: Cell<bool>,
 }
 
 impl Rule {
@@ -140,6 +148,7 @@ impl Suppressions {
                 rule,
                 path,
                 source_line: line_number,
+                used: Cell::new(false),
             });
         }
 
@@ -152,10 +161,20 @@ impl Suppressions {
 
     /// The ignore-file line that silences this finding, if any.
     pub fn matching_line(&self, finding: &Finding) -> Option<usize> {
+        let rule = self.rules.iter().find(|r| r.matches(finding))?;
+        rule.used.set(true);
+        Some(rule.source_line)
+    }
+
+    /// Lines that silenced nothing in this scan, in file order.
+    ///
+    /// Only meaningful once every finding has been offered to `matching_line`.
+    pub fn unused_lines(&self) -> Vec<usize> {
         self.rules
             .iter()
-            .find(|r| r.matches(finding))
+            .filter(|r| !r.used.get())
             .map(|r| r.source_line)
+            .collect()
     }
 }
 

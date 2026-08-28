@@ -1,5 +1,95 @@
 # Changelog
 
+## 0.3.0
+
+### A file it could not read was reported as nothing at all
+
+`Ctx::json` discarded the parse error, and every scanner treated the result the
+same way it treated a missing file. Those are not the same thing. A
+`.vscode/tasks.json` that opened with a UTF-8 byte order mark — which editors on
+Windows write routinely and VS Code reads without complaint — parsed nowhere,
+was skipped in silence, and left a repository with a `folderOpen` task fetching
+a shell script reporting `nothing executes on open`, exit `0`.
+
+Three bytes were enough. So were UTF-16, a single quote, a binary file, and
+JSON nested past the parser's depth limit.
+
+Reading now splits on a different question: does the tool that will actually
+open this repository read the file? Where it does, so does onopen — BOM and
+UTF-16 are decoded and their contents scanned. Where nobody can, the file is
+reported as `unreadable`, with the reason, in the human report, in `--json` and
+in SARIF. It is never counted as clean and never omitted. `--quiet` does not
+hide it, and neither does an otherwise clean report.
+
+An incomplete scan exits `2`. `--no-fail` still turns findings into `0`,
+because that is what it is for; it does not turn an unread configuration file
+into `0`, because that is a different claim.
+
+Reading is bounded as well: 8 MiB, regular files only, and a symbolic link that
+leaves the repository is reported rather than followed. Following it would let a
+repository decide which files on your machine this scanner opens.
+
+### Six scanner families became nine
+
+The rules covered the surfaces that were obvious a year ago. Sixteen new ones
+cover the rest: Cursor command hooks and multi-root `*.code-workspace`
+automatic tasks, pnpm and Yarn startup code, Python's build and import
+surfaces, Cargo build scripts and compiler overrides, direnv, mise and Nix
+hooks that fire on entering a directory, and local `pre-commit` entries.
+
+The research behind them, including the vectors deliberately not implemented
+and why, is in `docs/RED-TEAM-0.3.0.md`.
+
+### Half the rule set had no test
+
+Eleven of twenty-two rules had no assertion behind them. A rule with no test can
+stop firing without anything going red, and a detection that silently stops
+firing is indistinguishable from a repository that is clean — the same failure
+as the one above, arriving by a slower route.
+
+Every rule now has one, including `git/active-hook` and
+`git/hooks-path-redirected`, which had gone untested since the first commit for
+a mechanical reason: git will not store a nested `.git`, so their fixtures
+cannot be committed and are built at run time instead.
+
+Two more contracts got tests rather than good intentions: the CLI exit codes,
+asserted by running the binary, and `--sarif`, checked against the unedited
+OASIS schema. That checker deliberately refuses to pass on any schema
+construct it cannot evaluate, because a validator that ignores what it does not
+understand is this project's own bug wearing a different hat.
+
+### One rule was firing on nearly every repository
+
+`vscode/launch-workspace-binary` reported `"program": "${workspaceFolder}/src/index.js"`
+— which is what debugging is, and what almost every `launch.json` ever written
+contains. It now reports `runtimeExecutable`, where a repository substitutes the
+interpreter itself, and leaves the file being debugged alone. Noise is a defect
+here: a scanner that fires on the ordinary case teaches people to skip its
+output, and then it detects nothing at all.
+
+An ignore-file line that silences nothing is now reported too. That is how an
+ignore file stops working quietly: a rule is renamed or a directory moves, and
+what remains reads to the next person as a deliberate decision, covering
+something it no longer covers.
+
+### The build checks what the tool argues for
+
+CI compiles against the declared minimum Rust version instead of trusting the
+manifest, audits the dependency tree for advisories and licences, and pins every
+third-party action by commit digest rather than by a tag that can move. The
+README already made this argument about the binary the action downloads; it
+applies to the action itself.
+
+A scan of a large real repository runs on every push, with a ceiling, so a
+change that makes the walk quadratic fails the build rather than being noticed
+later by whoever waits for it.
+
+### Installing no longer means building
+
+`cargo install onopen --locked` works, release archives carry `cargo-binstall`
+metadata so the already-built binary can be fetched instead of compiled, and
+tagging publishes to crates.io through trusted publishing.
+
 ## 0.2.0
 
 The release that makes onopen usable on a repository someone actually has.

@@ -17,6 +17,7 @@ const HOOK_FILES: &[&str] = &[
     ".claude/settings.local.json",
     ".gemini/settings.json",
     ".cursor/environment.json",
+    ".cursor/hooks.json",
 ];
 
 impl Scanner for Agents {
@@ -28,12 +29,16 @@ impl Scanner for Agents {
         let mut unit = ScanUnit::default();
 
         for rel in HOOK_FILES {
-            let Some(doc) = ctx.json(rel) else {
+            let Some(doc) = ctx.json(rel, &mut unit) else {
                 continue;
             };
             let before = unit.findings.len();
 
-            scan_hooks(&doc, rel, &mut unit);
+            if *rel == ".cursor/hooks.json" {
+                scan_cursor_hooks(&doc, rel, &mut unit);
+            } else {
+                scan_hooks(&doc, rel, &mut unit);
+            }
             scan_cursor_env(&doc, rel, &mut unit);
             scan_permissions(&doc, rel, &mut unit);
 
@@ -43,6 +48,30 @@ impl Scanner for Agents {
         }
 
         unit
+    }
+}
+
+/// Cursor's checked-in hook schema makes `command` executable without a
+/// redundant `type: command`. Stay within `hooks.<event>[]` so an unrelated
+/// object named `command` elsewhere in the document cannot trip the rule.
+fn scan_cursor_hooks(doc: &Value, rel: &str, unit: &mut ScanUnit) {
+    let Some(events) = doc.get("hooks").and_then(Value::as_object) else {
+        return;
+    };
+    for (event, hooks) in events {
+        for hook in hooks.as_array().into_iter().flatten() {
+            let Some(command) = hook.get("command").and_then(command_text) else {
+                continue;
+            };
+            unit.push(Finding::new(
+                "agent/cursor-command-hook",
+                rel,
+                format!("hook {event}"),
+                command,
+                Severity::Immediate,
+                "Cursor runs this checked-in lifecycle hook as a command.",
+            ));
+        }
     }
 }
 
