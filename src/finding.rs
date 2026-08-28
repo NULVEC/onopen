@@ -80,6 +80,22 @@ impl Finding {
     }
 }
 
+/// A config file that exists but could not be turned into a document.
+///
+/// It is neither a finding nor clean, and the distinction is the whole point.
+/// Onopen does not know what is in it, while the editor or agent that opens the
+/// repository may well read it without complaint — VS Code accepts a
+/// `settings.json` that `serde_json` refuses. Calling such a file clean is the
+/// worst failure this tool has available: a false negative delivered with
+/// authority.
+#[derive(Debug, Clone, Serialize)]
+pub struct Unreadable {
+    /// Path relative to the scan root, always with `/` separators.
+    pub file: String,
+    /// Why it could not be read, in terms someone can act on.
+    pub reason: String,
+}
+
 /// What one scanner saw: the files it actually read, and what it found in them.
 #[derive(Debug, Default)]
 pub struct ScanUnit {
@@ -91,6 +107,12 @@ pub struct ScanUnit {
     /// Files that were parsed and came back with no execution path. Reported so
     /// the output distinguishes "clean" from "never looked".
     pub cleared: Vec<String>,
+    /// Files that exist but could not be read. Reported so the output also
+    /// distinguishes both of those from "looked and could not tell".
+    pub unreadable: Vec<Unreadable>,
+    /// Lines of the ignore file that silenced nothing. Reported because a dead
+    /// ignore line reads as protection that is not there.
+    pub stale_ignore_lines: Vec<usize>,
 }
 
 impl ScanUnit {
@@ -102,10 +124,18 @@ impl ScanUnit {
         self.cleared.push(path.into());
     }
 
+    pub fn mark_unreadable(&mut self, file: impl Into<String>, reason: impl Into<String>) {
+        self.unreadable.push(Unreadable {
+            file: file.into(),
+            reason: reason.into(),
+        });
+    }
+
     pub fn merge(&mut self, other: ScanUnit) {
         self.findings.extend(other.findings);
         self.suppressed.extend(other.suppressed);
         self.cleared.extend(other.cleared);
+        self.unreadable.extend(other.unreadable);
     }
 
     /// Rewrite every path to be relative to the top of the scan rather than to
@@ -123,6 +153,9 @@ impl ScanUnit {
         }
         for cleared in &mut self.cleared {
             *cleared = format!("{prefix}/{cleared}");
+        }
+        for entry in &mut self.unreadable {
+            entry.file = format!("{prefix}/{}", entry.file);
         }
     }
 }

@@ -23,6 +23,22 @@ const PROJECT_MARKERS: &[&str] = &[
     ".mcp.json",
     ".githooks",
     ".husky",
+    ".cargo",
+    ".yarnrc.yml",
+    ".pnpmfile.cjs",
+    ".pnpmfile.mjs",
+    ".envrc",
+    ".mise.toml",
+    "mise.toml",
+    "shell.nix",
+    "flake.nix",
+    "pyproject.toml",
+    "setup.py",
+    "sitecustomize.py",
+    "conftest.py",
+    "Cargo.toml",
+    "pnpm-workspace.yaml",
+    ".pre-commit-config.yaml",
     "package.json",
     "composer.json",
     "Gemfile",
@@ -107,6 +123,14 @@ fn has_marker(dir: &Path) -> bool {
     PROJECT_MARKERS
         .iter()
         .any(|marker| dir.join(marker).exists())
+        || std::fs::read_dir(dir).is_ok_and(|entries| {
+            entries.flatten().any(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.ends_with(".code-workspace"))
+            })
+        })
 }
 
 #[cfg(test)]

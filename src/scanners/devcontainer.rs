@@ -30,7 +30,7 @@ impl Scanner for DevContainer {
         let mut unit = ScanUnit::default();
 
         for rel in locate(ctx) {
-            let Some(doc) = ctx.json(&rel) else {
+            let Some(doc) = ctx.json(&rel, &mut unit) else {
                 continue;
             };
             let before = unit.findings.len();

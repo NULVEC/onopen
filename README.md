@@ -38,7 +38,15 @@ the same care as code*. That is not a defence. It is the absence of one.
 
 ## Install
 
-Build from source:
+Install from crates.io:
+
+```sh
+cargo install onopen --locked
+```
+
+Release archives for Linux, macOS and Windows are also attached to each
+[GitHub release](https://github.com/NULVEC/onopen/releases). To build from a
+checkout:
 
 ```sh
 git clone https://github.com/NULVEC/onopen
@@ -89,24 +97,39 @@ scanner, because it reports clean with authority. For the same reason
 `*  *` is refused: silencing everything is not configuration, it is turning
 the tool off, and there is already a way to not run it.
 
+A line that silences nothing is reported too:
+
+```
+  ignore file line 4 silenced nothing — the rule id or the path may have moved
+```
+
+That line is the quiet way an ignore file stops working. A rule gets renamed or
+a directory moves, and what is left reads to the next person as a decision that
+was made deliberately, protecting something it no longer covers.
+
 SARIF puts each finding on the line it came from, in the review someone is
 already reading, rather than in log output nobody opens. Silenced findings are
 included and marked as suppressed rather than dropped, so the machine format
 keeps the same promise the human one makes.
 
 **Exit codes.** `0` nothing runs on its own · `1` at least one immediate
-execution path · `2` the scan itself failed. Use `--no-fail` to always exit `0`.
+execution path · `2` the scan is incomplete or failed. `--no-fail` turns
+findings into `0`; it deliberately does not hide an unreadable configuration
+file or another scan failure.
 
 ## What it reads
 
 | Scanner | Files | Looking for |
 |---|---|---|
-| `vscode` | `.vscode/tasks.json`, `settings.json`, `launch.json` | `runOn: folderOpen`, settings that hand an extension a binary, terminal env injection |
-| `agents` | `.claude/settings*.json`, `.gemini/settings.json`, `.cursor/environment.json` | command hooks, Cursor environment commands, blanket permission allowlists |
+| `vscode` | `.vscode/*.json`, `*.code-workspace` | automatic tasks, executable settings, terminal env injection, debug prerequisites |
+| `agents` | Claude, Gemini and Cursor settings/hooks | command hooks, Cursor environment commands, blanket permission allowlists |
 | `mcp` | `.mcp.json`, `.vscode/mcp.json`, `.cursor/mcp.json`, agent settings | servers spawned at session start, `npx`/`uvx` fetch-and-run servers |
-| `packages` | `package.json`, `composer.json`, `Gemfile` | install lifecycle scripts, dependencies fetched outside the registry, Ruby that shells out |
+| `packages` | npm, pnpm, Yarn, Composer and Bundler config | install hooks, local package-manager code/plugins, build approvals, direct URL dependencies |
+| `python` | `setup.py`, `pyproject.toml`, `conftest.py`, `sitecustomize.py` | executable setup files, local build backends and automatic imports |
+| `cargo` | `Cargo.toml`, `.cargo/config*` | build scripts, compiler wrappers, runners and linkers |
+| `environments` | `.envrc`, `mise.toml`, `.mise.toml`, `shell.nix`, `flake.nix` | directory, lifecycle and development-shell hooks |
 | `devcontainer` | `.devcontainer/**/devcontainer.json`, `.devcontainer.json` | `initializeCommand` (runs on the **host**), container lifecycle commands, features |
-| `githooks` | `.git/config`, `.git/hooks/`, `.githooks/`, `.husky/` | redirected `core.hooksPath`, live hooks, hook scripts waiting to be wired up |
+| `githooks` | Git hook paths and `.pre-commit-config.yaml` | live/checked-in hooks and repository-defined pre-commit commands |
 
 ## How findings are ranked
 
@@ -123,9 +146,9 @@ execution path · `2` the scan itself failed. Use `--no-fail` to always exit `0`
 - **It never opens a network connection.** No telemetry, no lookups, no updates.
 - **It has no accounts, no server, and no paid tier.**
 
-Config files here are parsed as JSONC, because VS Code and devcontainer files
-legally contain comments and trailing commas — and a scanner that trips over a
-comment reports clean on a file it never read.
+JSONC, TOML and YAML are parsed as their actual formats. UTF-8 BOM and UTF-16
+files are decoded. Malformed, binary, oversized and out-of-repository symlinked
+configuration is reported as unreadable and exits `2`, never as clean.
 
 ## In CI
 
@@ -166,15 +189,17 @@ that repository clean. Dependency directories — `node_modules`, `vendor`,
 `target` and their kin — are never entered: what is in them is not the project
 you are opening. `--depth 0` restores the root-only behaviour.
 
-It does not currently read: `.idea/` run configurations, `.github/workflows`
-trigger analysis, Gradle or `setup.py` build scripts, or agent instruction files
-(`CLAUDE.md`, `AGENTS.md`) that tell an agent to run something in prose.
+It deliberately does not report every command in every build system. It does
+not currently inspect JetBrains startup tasks, Emacs/Vim local configuration,
+Gradle/CMake/Make/Docker build commands, hosted CI workflows, or instructions
+in prose (`CLAUDE.md`, `AGENTS.md`). Those surfaces either need a stronger
+trust-boundary model or would turn normal project configuration into noise.
 
 ## Contributing
 
-New detections are the most useful contribution, and each one wants a fixture.
-Add the config file under `tests/fixtures/trapped/`, add a test in
-`tests/scan.rs` asserting the rule id and severity, then implement the rule.
+New detections are the most useful contribution, and each one needs both a
+hostile fixture and an ordinary clean counterpart. See `tests/v03.rs` for the
+compact runtime-fixture pattern.
 
 ```sh
 cargo test

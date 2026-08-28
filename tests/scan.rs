@@ -361,3 +361,131 @@ fn a_missing_explicit_ignore_file_is_an_error() {
     let err = scan(&fixture("clean"), &opts).unwrap_err();
     assert!(err.to_string().contains("ignore file not found"));
 }
+
+// ---------------------------------------------------------------------------
+// Rule coverage
+//
+// Half the rule set had no test asserting it. A rule with no test is a rule
+// that can stop firing without anything going red, and a detection that
+// silently stops firing is indistinguishable from a repository that is clean.
+// ---------------------------------------------------------------------------
+
+fn hit<'a>(unit: &'a ScanUnit, rule: &str) -> &'a onopen::finding::Finding {
+    unit.findings
+        .iter()
+        .find(|f| f.rule == rule)
+        .unwrap_or_else(|| panic!("{rule} should have fired; got {:?}", rules(unit)))
+}
+
+#[test]
+fn reports_workspace_settings_that_hand_an_extension_a_binary() {
+    let unit = scan_fixture("trapped");
+    let f = hit(&unit, "vscode/setting-runs-binary");
+    assert_eq!(f_severity(f), Severity::Immediate);
+    assert!(f.trigger.contains("rust-analyzer.server.path"));
+}
+
+#[test]
+fn reports_environment_injected_into_every_terminal() {
+    let unit = scan_fixture("trapped");
+    let f = hit(&unit, "vscode/terminal-env-injection");
+    // Deferred: it lands in the environment now, and runs when a terminal opens.
+    assert_eq!(f_severity(f), Severity::Deferred);
+    assert!(f.command.contains("preload.js"));
+}
+
+#[test]
+fn reports_a_task_that_runs_before_debugging() {
+    let unit = scan_fixture("trapped");
+    let f = hit(&unit, "vscode/pre-launch-task");
+    assert_eq!(f_severity(f), Severity::Deferred);
+}
+
+#[test]
+fn reports_a_runtime_shipped_in_the_repository_but_not_the_file_being_debugged() {
+    let unit = scan_fixture("trapped");
+    let f = hit(&unit, "vscode/launch-workspace-binary");
+    assert_eq!(f_severity(f), Severity::Note);
+    assert!(
+        f.trigger.contains("runtimeExecutable"),
+        "the interpreter is the finding, not the program"
+    );
+
+    // `program` pointing at a source file in the repository is what debugging
+    // is. Reporting it fires on nearly every launch.json ever written, and a
+    // scanner that cries wolf on the ordinary case gets uninstalled.
+    assert!(
+        !unit
+            .findings
+            .iter()
+            .any(|f| f.trigger.starts_with("program")),
+        "a source file named as the debug target is not a finding"
+    );
+}
+
+#[test]
+fn reports_cursor_environment_commands() {
+    let unit = scan_fixture("trapped");
+    let found: Vec<_> = unit
+        .findings
+        .iter()
+        .filter(|f| f.rule == "agent/cursor-environment-command")
+        .collect();
+    assert_eq!(found.len(), 2, "install and start both run");
+    assert!(found.iter().all(|f| f_severity(f) == Severity::Immediate));
+}
+
+#[test]
+fn reports_a_blanket_permission_allowlist_as_a_note() {
+    // It executes nothing by itself. It removes the prompt that would have
+    // caught something else executing, which is a different kind of problem.
+    let unit = scan_fixture("trapped");
+    let f = hit(&unit, "agent/broad-permission-allow");
+    assert_eq!(f_severity(f), Severity::Note);
+}
+
+#[test]
+fn separates_mcp_servers_that_fetch_from_those_that_only_spawn() {
+    let unit = scan_fixture("trapped");
+    let spawns = hit(&unit, "mcp/server-spawns-process");
+    let fetches = hit(&unit, "mcp/server-fetches-and-runs");
+
+    assert_eq!(f_severity(spawns), Severity::Immediate);
+    assert_eq!(f_severity(fetches), Severity::Immediate);
+    assert!(
+        fetches.command.contains("npx"),
+        "the fetch-and-run rule is the one with no lockfile behind it"
+    );
+    assert!(!spawns.command.contains("npx"));
+}
+
+#[test]
+fn reports_a_remote_mcp_server_as_a_note() {
+    let unit = scan_fixture("trapped");
+    let f = hit(&unit, "mcp/remote-server");
+    // Nothing runs locally; the session's tool traffic goes somewhere else.
+    assert_eq!(f_severity(f), Severity::Note);
+    assert!(f.command.starts_with("https://"));
+}
+
+#[test]
+fn reports_devcontainer_features_pulled_from_a_registry() {
+    let unit = scan_fixture("trapped");
+    let f = hit(&unit, "devcontainer/feature");
+    assert_eq!(f_severity(f), Severity::Note);
+}
+
+#[test]
+fn the_clean_fixture_reports_nothing_at_all() {
+    // Stronger than "no immediate findings", and deliberately so: every config
+    // file in the clean fixture is the ordinary version of a file the trapped
+    // one weaponises. A single note here means a rule fires on a layout that
+    // millions of repositories have, and that is how a scanner gets ignored.
+    let unit = scan_fixture("clean");
+    assert!(
+        unit.findings.is_empty(),
+        "the clean fixture must stay clean: {:#?}",
+        unit.findings
+    );
+    assert!(unit.unreadable.is_empty());
+}

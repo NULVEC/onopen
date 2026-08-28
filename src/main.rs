@@ -78,8 +78,13 @@ fn main() -> ExitCode {
     }
 
     match run(&cli) {
-        Ok(found_immediate) => {
-            if found_immediate && !cli.no_fail {
+        Ok(outcome) => {
+            if outcome.incomplete {
+                // A scan that could not read part of the repository has not
+                // answered the question it was asked. Reporting that as either
+                // clean or as an ordinary finding would overstate what it knows.
+                ExitCode::from(2)
+            } else if outcome.immediate && !cli.no_fail {
                 ExitCode::from(1)
             } else {
                 ExitCode::SUCCESS
@@ -92,8 +97,16 @@ fn main() -> ExitCode {
     }
 }
 
-/// Returns whether the scan found something that runs on its own.
-fn run(cli: &Cli) -> Result<bool> {
+/// What a finished run means for the exit code.
+struct Outcome {
+    /// Something in the repository runs on its own.
+    immediate: bool,
+    /// Part of what the scan was asked to read came back unreadable, so the
+    /// answer is partial.
+    incomplete: bool,
+}
+
+fn run(cli: &Cli) -> Result<Outcome> {
     let root = cli
         .path
         .canonicalize()
@@ -124,7 +137,10 @@ fn run(cli: &Cli) -> Result<bool> {
         print!("{}", report::render_human(&report, &opts));
     }
 
-    Ok(report.should_fail())
+    Ok(Outcome {
+        immediate: report.should_fail(),
+        incomplete: report.is_incomplete(),
+    })
 }
 
 /// Prefer what the user typed; fall back to the resolved path, stripped of the

@@ -1,6 +1,6 @@
 [package]
 name = "onopen"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.85"
 description = "See what runs when you open a repository. Finds config files that execute commands on folder open, install, or agent start."
@@ -28,10 +28,25 @@ exclude = [
 anyhow = "1.0.104"
 clap = { version = "4.6.6", features = ["derive"] }
 globset = "0.4.19"
-ignore = "0.4.30"
+# 0.4.30 uses let-chains stabilized after our Rust 1.85 MSRV.
+ignore = "=0.4.23"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+toml = "0.8.23"
 walkdir = "2.5.0"
+yaml-rust2 = "0.11.0"
+
+# cargo-binstall reads this to fetch the binary a release already built instead
+# of compiling the crate. The shape has to match what release.yml produces:
+# `onopen-<version>-<target>` as the archive stem, and the binary one directory
+# down inside it.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ version }-{ target }{ archive-suffix }"
+pkg-fmt = "tgz"
+bin-dir = "{ name }-{ version }-{ target }/{ bin }{ binary-ext }"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
 
 [profile.release]
 strip = true

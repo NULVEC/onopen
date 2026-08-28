@@ -1,0 +1,34 @@
+# What onopen will accept in its own dependency tree.
+#
+# A tool whose argument is that you should know what runs when you open a
+# repository has no business being vague about what it pulls in itself. The
+# lists below are deliberately short: every entry is a licence that is actually
+# present today, so adding a dependency that widens the set is a decision
+# somebody has to make on purpose rather than a diff nobody reads.
+
+[advisories]
+yanked = "deny"
+
+[licenses]
+# Every one of these appears in the current tree, and all are permissive enough
+# to redistribute under Apache-2.0 in the release archives.
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "Unlicense",
+    "BSD-3-Clause",
+    "Zlib",
+    "Unicode-3.0",
+]
+
+[bans]
+# Two copies of the same crate is usually somebody's transitive bound drifting.
+# Worth seeing, not worth failing a build over.
+multiple-versions = "warn"
+# A wildcard version is an unpinned dependency by another name.
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

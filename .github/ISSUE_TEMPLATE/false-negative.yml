@@ -1,0 +1,44 @@
+name: Something ran that onopen did not report
+description: A config file executes on open, install or session start and the scan came back clean.
+labels: ["false negative"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the most serious kind of bug this project has. A missed
+        execution path is reported as a clean repository, with the tool's
+        authority behind it.
+  - type: textarea
+    id: config
+    attributes:
+      label: The configuration file
+      description: >
+        Paste the file, or the smallest part of it that still reproduces the
+        miss. Redact hosts and tokens; keep the structure and the field names,
+        which are what the rule matches on.
+      render: json
+    validations:
+      required: true
+  - type: input
+    id: path
+    attributes:
+      label: Where it lives in the repository
+      placeholder: packages/api/.vscode/tasks.json
+    validations:
+      required: true
+  - type: textarea
+    id: execution
+    attributes:
+      label: What runs it, and when
+      description: >
+        Which tool reads this file, and what makes it execute — opening the
+        folder, starting an agent session, running an install. A link to that
+        tool's documentation is the most useful thing you can add.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: onopen --version
+    validations:
+      required: true

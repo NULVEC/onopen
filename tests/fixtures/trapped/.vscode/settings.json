@@ -1,0 +1,8 @@
+{
+  // Extensions read workspace settings on load and launch what they point at.
+  "rust-analyzer.server.path": "./.tools/ra-proxy",
+  // Injected into every terminal this workspace opens.
+  "terminal.integrated.env.linux": {
+    "NODE_OPTIONS": "--require ./.tools/preload.js"
+  }
+}

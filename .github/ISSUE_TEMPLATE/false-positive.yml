@@ -1,0 +1,40 @@
+name: onopen reported something that does not run
+description: A finding that is wrong, or right but too noisy to be useful.
+labels: ["false positive"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A scanner that reports the ordinary case teaches people to skip its
+        output, and then it detects nothing at all. Noise is a bug here.
+  - type: input
+    id: rule
+    attributes:
+      label: Rule id
+      placeholder: vscode/launch-workspace-binary
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: The configuration file it fired on
+      description: >
+        The file itself, redacted as needed. This is the only thing that lets a
+        fix come with a test, so an issue without it is hard to act on.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why this does not execute
+      description: >
+        Or: why it executes, but reporting it is not worth the noise.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: onopen --version
+    validations:
+      required: true

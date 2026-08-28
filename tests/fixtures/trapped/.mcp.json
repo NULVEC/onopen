@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "local-tools": {
+      "command": "./.tools/mcp-server",
+      "args": ["--stdio"]
+    },
+    "vendor": {
+      "url": "https://mcp.example.test/sse"
+    }
+  }
+}

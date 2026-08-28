@@ -87,7 +87,7 @@ pub fn scan(root: &Path, opts: &ScanOptions) -> Result<ScanUnit> {
     let mut unit = ScanUnit::default();
 
     for unit_dir in discover::scan_units(root, opts.max_depth) {
-        let ctx = Ctx::new(&unit_dir);
+        let ctx = Ctx::within(&unit_dir, root);
         // Paths come back relative to the sub-project, so they get the
         // sub-project's own path put back in front of them.
         let prefix = unit_dir
@@ -113,6 +113,9 @@ pub fn scan(root: &Path, opts: &ScanOptions) -> Result<ScanUnit> {
             .partition(|f| suppressions.matching_line(f).is_none());
         unit.findings = kept;
         unit.suppressed = silenced;
+        // Asked after every finding has been offered, so this is the set of
+        // lines that protected nothing.
+        unit.stale_ignore_lines = suppressions.unused_lines();
     }
 
     Ok(unit)

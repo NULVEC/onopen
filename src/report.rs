@@ -1,12 +1,14 @@
 //! Output rendering: a human view built for skimming, and JSON for machines.
 
-use crate::finding::{Finding, ScanUnit, Severity};
+use crate::finding::{Finding, ScanUnit, Severity, Unreadable};
 use serde::Serialize;
 use std::io::IsTerminal;
 
 const RESET: &str = "\x1b[0m";
 const DIM: &str = "\x1b[90m";
 const BOLD: &str = "\x1b[1m";
+/// Unreadable rows get their own colour: they are neither a finding nor clean.
+const UNREAD: &str = "\x1b[35m";
 
 #[derive(Serialize)]
 pub struct Report {
@@ -15,6 +17,12 @@ pub struct Report {
     pub root: String,
     pub findings: Vec<Finding>,
     pub suppressed: Vec<Finding>,
+    /// Files that exist and could not be read. Carried in every output format,
+    /// because a report that hides how much of the repository it failed to
+    /// read is a report that overstates what it knows.
+    pub unreadable: Vec<Unreadable>,
+    /// Ignore-file lines that silenced nothing this run.
+    pub stale_ignore_lines: Vec<usize>,
     pub summary: Summary,
 }
 
@@ -27,6 +35,8 @@ pub struct Summary {
     /// Reported even when nothing else is, so a repository cannot be made to
     /// look clean by an ignore file without saying so.
     pub suppressed: usize,
+    /// Same promise for files the scan could not read at all.
+    pub unreadable: usize,
 }
 
 impl Report {
@@ -39,9 +49,12 @@ impl Report {
                 .then_with(|| a.file.cmp(&b.file))
         });
 
+        unit.unreadable.sort_by(|a, b| a.file.cmp(&b.file));
+
         let mut summary = Summary {
             files_cleared: unit.cleared.len(),
             suppressed: unit.suppressed.len(),
+            unreadable: unit.unreadable.len(),
             ..Default::default()
         };
         for f in &unit.findings {
@@ -58,6 +71,8 @@ impl Report {
             root,
             findings: unit.findings,
             suppressed: unit.suppressed,
+            unreadable: unit.unreadable,
+            stale_ignore_lines: unit.stale_ignore_lines,
             summary,
         }
     }
@@ -65,6 +80,14 @@ impl Report {
     /// Exit non-zero only for things that run on their own.
     pub fn should_fail(&self) -> bool {
         self.summary.immediate > 0
+    }
+
+    /// Whether part of what the scan was asked to read came back unreadable.
+    ///
+    /// The answer to "what runs when I open this" is then a partial one, and a
+    /// partial answer must not be able to pass for a clean bill of health.
+    pub fn is_incomplete(&self) -> bool {
+        self.summary.unreadable > 0
     }
 }
 
@@ -94,13 +117,17 @@ pub fn render_human(report: &Report, opts: &HumanOptions) -> String {
         c(RESET)
     ));
 
-    if report.findings.is_empty() && (opts.quiet || opts.cleared.is_empty()) {
+    if report.findings.is_empty()
+        && report.unreadable.is_empty()
+        && (opts.quiet || opts.cleared.is_empty())
+    {
         out.push_str("  nothing executes on open.\n");
         // An ignore file must never be able to turn a repository clean in
         // silence: whatever it hid gets said here too.
         if report.summary.suppressed > 0 {
             out.push_str(&suppressed_note(report, &c));
         }
+        out.push_str(&stale_note(report, &c));
         out.push('\n');
         if opts.show_suppressed {
             out.push_str(&suppressed_list(report, &c));
@@ -114,6 +141,12 @@ pub fn render_human(report: &Report, opts: &HumanOptions) -> String {
         .findings
         .iter()
         .map(|f| f.file.chars().count())
+        .chain(
+            report
+                .unreadable
+                .iter()
+                .map(|entry| entry.file.chars().count()),
+        )
         .chain(
             opts.cleared
                 .iter()
@@ -156,6 +189,19 @@ pub fn render_human(report: &Report, opts: &HumanOptions) -> String {
         }
     }
 
+    for entry in &report.unreadable {
+        out.push_str(&format!(
+            "{}?{} {:<fw$}  {}{}{}\n",
+            c(UNREAD),
+            c(RESET),
+            fit(&entry.file, file_w),
+            c(UNREAD),
+            entry.reason,
+            c(RESET),
+            fw = file_w
+        ));
+    }
+
     if !opts.quiet {
         for path in &opts.cleared {
             out.push_str(&format!(
@@ -170,14 +216,65 @@ pub fn render_human(report: &Report, opts: &HumanOptions) -> String {
 
     out.push('\n');
     out.push_str(&summary_line(report, &c));
+    if report.summary.unreadable > 0 {
+        out.push_str(&incomplete_note(report, &c));
+    }
     if report.summary.suppressed > 0 {
         out.push_str(&suppressed_note(report, &c));
     }
+    out.push_str(&stale_note(report, &c));
     out.push('\n');
     if opts.show_suppressed {
         out.push_str(&suppressed_list(report, &c));
     }
     out
+}
+
+/// One line naming what the scan could not read.
+///
+/// Printed for the same reason the suppression note is printed: the summary
+/// above it counts execution paths, and a reader who sees a low number needs to
+/// know in the same breath how much of the repository never got read.
+fn incomplete_note(report: &Report, c: &impl Fn(&'static str) -> &'static str) -> String {
+    let n = report.summary.unreadable;
+    let (noun, pronoun) = if n == 1 {
+        ("file", "it")
+    } else {
+        ("files", "them")
+    };
+    format!(
+        "  {}{n} {noun} could not be read — onopen cannot tell you what is in {pronoun}{}\n",
+        c(BOLD),
+        c(RESET)
+    )
+}
+
+/// Names the ignore-file lines that silenced nothing.
+///
+/// A dead ignore line reads as protection to whoever finds it in the file, and
+/// is none: the rule id was renamed, or the path moved. Saying so is the same
+/// promise the rest of this file keeps — an ignore file may hide a finding, but
+/// never quietly stop doing its job.
+fn stale_note(report: &Report, c: &impl Fn(&'static str) -> &'static str) -> String {
+    if report.stale_ignore_lines.is_empty() {
+        return String::new();
+    }
+    let lines: Vec<String> = report
+        .stale_ignore_lines
+        .iter()
+        .map(|n| n.to_string())
+        .collect();
+    let (noun, verb) = if lines.len() == 1 {
+        ("line", "silenced")
+    } else {
+        ("lines", "silenced")
+    };
+    format!(
+        "  {}ignore file {noun} {} {verb} nothing — the rule id or the path may have moved{}\n",
+        c(DIM),
+        lines.join(", "),
+        c(RESET)
+    )
 }
 
 /// One line naming how much an ignore file silenced. Printed whenever
