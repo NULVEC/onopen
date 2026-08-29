@@ -33,9 +33,9 @@ ignore = "=0.4.23"
 roxmltree = "0.21.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-toml = "0.8.23"
+toml = "1.1.4"
 walkdir = "2.5.0"
-yaml-rust2 = "0.11.0"
+yaml-rust2 = "0.12.0"
 
 # cargo-binstall reads this to fetch the binary a release already built instead
 # of compiling the crate. The shape has to match what release.yml produces:
