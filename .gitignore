@@ -6,6 +6,11 @@
 .DS_Store
 Thumbs.db
 .idea/
+# Salvo las fixtures. Una carpeta `.idea` de prueba es exactamente lo que el
+# scanner de JetBrains tiene que leer, y la regla de arriba la dejaba fuera del
+# repositorio sin decir nada: en local los tests pasaban y en CI fallaban los
+# tres sistemas.
+!tests/fixtures/*/.idea/
 
 # Nothing under .vscode/ or .claude/ is ignored on purpose: this repository is
 # a scanner for exactly those files, so they stay visible and reviewable.
