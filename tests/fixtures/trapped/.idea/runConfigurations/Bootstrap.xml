@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component name="ProjectRunConfigurationManager">
+  <configuration name="Bootstrap" type="ShConfigurationType">
+    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/tools/bootstrap.sh" />
+  </configuration>
+</component>

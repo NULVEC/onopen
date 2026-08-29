@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectTasksOptions">
+    <TaskOptions isEnabled="true">
+      <option name="name" value="regenerate" />
+      <option name="program" value="$PROJECT_DIR$/tools/regen.sh" />
+      <option name="arguments" value="$FilePath$" />
+    </TaskOptions>
+  </component>
+</project>
