@@ -7,6 +7,15 @@ updates:
     groups:
       rust-dependencies:
         patterns: ["*"]
+    ignore:
+      # `ignore` is pinned to =0.4.23 in Cargo.toml on purpose: 0.4.30 uses
+      # let-chains, stabilized after the Rust 1.85 this crate promises. The MSRV
+      # job rejects the bump correctly, so without this rule every week produces
+      # a red pull request that re-argues a decision already made and documented.
+      #
+      # Raising the MSRV is a fine thing to do. It should be a deliberate change
+      # with a changelog entry, not a side effect of merging a bot's PR.
+      - dependency-name: "ignore"
   - package-ecosystem: github-actions
     directory: /
     schedule:
