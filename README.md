@@ -128,6 +128,7 @@ file or another scan failure.
 | `python` | `setup.py`, `pyproject.toml`, `conftest.py`, `sitecustomize.py` | executable setup files, local build backends and automatic imports |
 | `cargo` | `Cargo.toml`, `.cargo/config*` | build scripts, compiler wrappers, runners and linkers |
 | `environments` | `.envrc`, `mise.toml`, `.mise.toml`, `shell.nix`, `flake.nix` | directory, lifecycle and development-shell hooks |
+| `editors` | `.idea/startupTasks.xml`, `.idea/watcherTasks.xml`, `.dir-locals.el`, `.exrc` | JetBrains startup tasks and file watchers, Emacs `eval` entries, project-local Vim rc |
 | `devcontainer` | `.devcontainer/**/devcontainer.json`, `.devcontainer.json` | `initializeCommand` (runs on the **host**), container lifecycle commands, features |
 | `githooks` | Git hook paths and `.pre-commit-config.yaml` | live/checked-in hooks and repository-defined pre-commit commands |
 
@@ -190,10 +191,20 @@ that repository clean. Dependency directories — `node_modules`, `vendor`,
 you are opening. `--depth 0` restores the root-only behaviour.
 
 It deliberately does not report every command in every build system. It does
-not currently inspect JetBrains startup tasks, Emacs/Vim local configuration,
-Gradle/CMake/Make/Docker build commands, hosted CI workflows, or instructions
-in prose (`CLAUDE.md`, `AGENTS.md`). Those surfaces either need a stronger
-trust-boundary model or would turn normal project configuration into noise.
+not inspect Gradle, CMake, Make or Docker build commands, hosted CI workflows,
+or instructions in prose (`CLAUDE.md`, `AGENTS.md`).
+
+Those are real execution paths, and leaving them out is a choice rather than an
+oversight. A `Makefile` runs commands because that is what a `Makefile` is for,
+so reporting them would fire on nearly every repository scanned — and a scanner
+that fires on the ordinary case teaches people to skip its output, at which
+point it detects nothing at all. Prose is worse: there is no reliable way to
+tell a `CLAUDE.md` that says "run the tests" from one that says something else,
+without understanding the text.
+
+The rules that do exist for editors are narrow for the same reason. A
+repository that ships `.idea/startupTasks.xml` has a startup task; that file
+exists for no other purpose, and there is no ordinary case to confuse it with.
 
 ## Contributing
 

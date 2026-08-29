@@ -15,6 +15,9 @@ use std::path::{Path, PathBuf};
 /// none of them has nothing for us to find.
 const PROJECT_MARKERS: &[&str] = &[
     ".vscode",
+    ".idea",
+    ".dir-locals.el",
+    ".exrc",
     ".claude",
     ".cursor",
     ".gemini",

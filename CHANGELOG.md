@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.4.0
+
+### Three editors decided what runs, and nobody was looking
+
+`vscode` covered one editor. JetBrains launches shared startup tasks the moment
+a project is opened, and runs File Watchers whenever a matching file changes.
+Emacs evaluates Lisp from `.dir-locals.el` when a file in the directory is
+visited. Vim reads a project-local rc from the working directory.
+
+Four rules cover them. `jetbrains/startup-task` follows the task to the run
+configuration it names, so the report shows the script that runs rather than
+only what somebody called it. `jetbrains/file-watcher` is deferred: it needs a
+file to change, which is a deliberate act, and one nobody thinks of as running
+anything. `emacs/directory-local-eval` reports only the `eval` entry, because
+setting `fill-column` is what that file is for and reporting it would fire on
+the ordinary use. `vim/project-rc` is a note: Vim reads it only with `exrc`
+enabled, which is off by default and is not something the repository controls.
+
+`.idea` files are XML, so they get the same promise the JSON ones already had —
+one that does not parse is reported, never passed over. That is one new
+dependency, `roxmltree`, which brings nothing of its own.
+
+### What is still not covered, and why that is a decision
+
+Gradle, CMake, Make and Docker build commands, hosted CI workflows, and
+instructions in prose stay out. They are real execution paths, and leaving them
+out is deliberate.
+
+A `Makefile` runs commands because that is what a `Makefile` is for. Reporting
+them would fire on nearly every repository, and a scanner that fires on the
+ordinary case teaches people to skip its output — at which point it detects
+nothing at all. This project has already narrowed one rule for exactly that:
+`vscode/launch-workspace-binary` used to report the `program` of every
+`launch.json` ever written.
+
+Prose is harder still. There is no reliable way to tell a `CLAUDE.md` that says
+"run the tests" from one that says something worse, without understanding the
+text. A keyword rule would fire on almost every repository that works with an
+agent, which today is most of them.
+
+The four editor rules are narrow for the same reason they exist: those files
+have no purpose other than making something run.
+
 ## 0.3.0
 
 ### A file it could not read was reported as nothing at all

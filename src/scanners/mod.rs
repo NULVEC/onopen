@@ -7,6 +7,7 @@
 pub mod agents;
 pub mod cargo;
 pub mod devcontainer;
+pub mod editors;
 pub mod environments;
 pub mod githooks;
 pub mod mcp;
@@ -206,6 +207,7 @@ pub trait Scanner {
 pub fn all() -> Vec<Box<dyn Scanner>> {
     vec![
         Box::new(vscode::VsCode),
+        Box::new(editors::Editors),
         Box::new(agents::Agents),
         Box::new(mcp::Mcp),
         Box::new(packages::Packages),

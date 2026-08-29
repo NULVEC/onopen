@@ -489,3 +489,59 @@ fn the_clean_fixture_reports_nothing_at_all() {
     );
     assert!(unit.unreadable.is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// Editors other than VS Code
+//
+// These four rules cover files whose whole purpose is to make something run.
+// That is the line: a `Makefile` runs commands too, and reporting every one
+// would fire on nearly every repository — which teaches people to skip the
+// output, and then the scanner detects nothing at all.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn reports_a_jetbrains_startup_task_and_what_it_runs() {
+    let unit = scan_fixture("trapped");
+    let f = hit(&unit, "jetbrains/startup-task");
+    assert_eq!(f_severity(f), Severity::Immediate);
+    assert!(
+        f.command.contains("bootstrap.sh"),
+        "the run configuration should be resolved, not just named: {:?}",
+        f.command
+    );
+}
+
+#[test]
+fn reports_an_enabled_file_watcher_as_deferred() {
+    // It runs when a matching file changes, which is a deliberate act — and one
+    // nobody thinks of as running anything.
+    let unit = scan_fixture("trapped");
+    let f = hit(&unit, "jetbrains/file-watcher");
+    assert_eq!(f_severity(f), Severity::Deferred);
+    assert!(f.command.contains("regen.sh"));
+    assert!(f.trigger.contains("regenerate"));
+}
+
+#[test]
+fn reports_an_emacs_eval_entry_but_not_ordinary_variables() {
+    let unit = scan_fixture("trapped");
+    let f = hit(&unit, "emacs/directory-local-eval");
+    assert_eq!(f_severity(f), Severity::Deferred);
+
+    // The clean fixture sets indent-tabs-mode and fill-column, which is what
+    // the file is for. Reporting that would fire on the ordinary use.
+    let clean = scan_fixture("clean");
+    assert!(
+        !rules(&clean).contains(&"emacs/directory-local-eval"),
+        "a dir-locals file that only sets variables is not a finding"
+    );
+}
+
+#[test]
+fn reports_a_project_local_vim_rc_as_a_note() {
+    // Vim only reads it with `exrc` enabled, which is off by default and is not
+    // something the repository controls.
+    let unit = scan_fixture("trapped");
+    let f = hit(&unit, "vim/project-rc");
+    assert_eq!(f_severity(f), Severity::Note);
+}
