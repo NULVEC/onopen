@@ -190,6 +190,22 @@ that repository clean. Dependency directories — `node_modules`, `vendor`,
 `target` and their kin — are never entered: what is in them is not the project
 you are opening. `--depth 0` restores the root-only behaviour.
 
+`.gitignore` is honoured for files git would ignore, and for nothing else. Git
+applies ignore rules only to files it does not already track, so a file that was
+committed first stays in every clone no matter what pattern is added afterwards.
+Onopen reads `.git/index` — the file, not the `git` binary — and puts back what
+an ignore rule was hiding from a clone. Without that step, two lines are enough
+to turn a repository clean:
+
+```sh
+git add -f packages/api/.vscode/tasks.json
+echo 'packages/' >> .gitignore
+```
+
+An index that exists and cannot be parsed is reported like any other unreadable
+file, and ignore rules stop being trusted for that run rather than being trusted
+without anything to check them against.
+
 It deliberately does not report every command in every build system. It does
 not inspect Gradle, CMake, Make or Docker build commands, hosted CI workflows,
 or instructions in prose (`CLAUDE.md`, `AGENTS.md`).
