@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.5.0
+
+### Two lines of git turned a repository clean
+
+`.gitignore` does not describe what a repository contains. Git consults it for
+files it does not already track and for nothing else — once a file is in the
+index, a pattern added later changes nothing about it. It stays committed, it
+ships in every clone, and it runs on the machine of whoever opens the folder.
+
+The walk read those rules as if they were the truth about the clone, so the
+evasion was two lines long:
+
+```sh
+git add -f packages/api/.vscode/tasks.json
+echo 'packages/' >> .gitignore
+```
+
+One immediate finding and exit `1` became `nothing executes on open` and exit
+`0`, with the tool's full authority behind it. This was the last item on the
+0.3.0 red-team backlog to be carried as a known limit rather than fixed, and it
+was the worst one to leave open: unlike a missing scanner family, it turned
+findings the scanners already produced back into silence.
+
+Onopen now reads `.git/index` and puts back the directories an ignore rule was
+hiding from a clone. Only what is committed comes back — an ignored directory
+that nobody tracked is still ignored, because nothing in it is in the clone
+either, and walking build output was never the point.
+
+### Reading the index, not running git
+
+The index is parsed as a file. Shelling out to a `git` resolved from `PATH`
+inside a repository nobody has read yet would be a peculiar thing for a tool
+whose promise is that it reads and parses and never executes — and it would make
+the result depend on whichever version happened to be installed.
+
+Index versions 2, 3 and 4 are read, with SHA-1 or SHA-256 object names. Nothing
+in the format records which hash a repository uses, so both lengths are tried
+and the one that parses wins; two invariants git maintains — the flags repeat
+the length of the name that follows them, and entries are sorted — are what
+distinguish a correct reading from a plausible-looking misreading. A `.git` file
+pointing elsewhere, as a linked worktree or a submodule leaves, is followed to
+the index it names.
+
+An index that exists and does not parse is reported like any other unreadable
+file: the scan is incomplete and exits `2`. It also stops the ignore rules being
+trusted for that run. Honouring them with nothing left to check them against is
+the failure this release exists to close, and a damaged index would otherwise be
+a second way to ask for it.
+
 ## 0.4.0
 
 ### Three editors decided what runs, and nobody was looking
