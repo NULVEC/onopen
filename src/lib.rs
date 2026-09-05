@@ -15,6 +15,7 @@
 
 pub mod discover;
 pub mod finding;
+pub mod gitindex;
 pub mod jsonc;
 pub mod report;
 pub mod sarif;
@@ -86,7 +87,15 @@ pub fn scan(root: &Path, opts: &ScanOptions) -> Result<ScanUnit> {
 
     let mut unit = ScanUnit::default();
 
-    for unit_dir in discover::scan_units(root, opts.max_depth) {
+    let discovery = discover::discover(root, opts.max_depth);
+    // A repository whose index could not be read is one whose ignore rules
+    // could not be checked against what is actually committed. Saying so is the
+    // difference between a partial answer and a clean bill of health.
+    if let Some(entry) = discovery.unreadable {
+        unit.unreadable.push(entry);
+    }
+
+    for unit_dir in discovery.units {
         let ctx = Ctx::within(&unit_dir, root);
         // Paths come back relative to the sub-project, so they get the
         // sub-project's own path put back in front of them.

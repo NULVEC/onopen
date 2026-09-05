@@ -6,27 +6,32 @@
 //! reports those repositories clean, which for a security tool is the worst
 //! failure available: a silent false negative.
 
+use crate::finding::Unreadable;
+use crate::gitindex::{self, Index};
 use ignore::WalkBuilder;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-/// A directory is worth scanning if it holds any of these. They are exactly the
-/// files and directories the scanners know how to read, so a unit that matches
-/// none of them has nothing for us to find.
-const PROJECT_MARKERS: &[&str] = &[
+/// Marker directories: a directory holding one of these is a project, and so is
+/// the directory above one of these wherever it turns up in a tracked path.
+const DIR_MARKERS: &[&str] = &[
     ".vscode",
     ".idea",
-    ".dir-locals.el",
-    ".exrc",
     ".claude",
     ".cursor",
     ".gemini",
     ".devcontainer",
-    ".devcontainer.json",
-    ".mcp.json",
     ".githooks",
     ".husky",
     ".cargo",
+];
+
+/// Marker files. Each one is a config file some scanner knows how to read.
+const FILE_MARKERS: &[&str] = &[
+    ".dir-locals.el",
+    ".exrc",
+    ".devcontainer.json",
+    ".mcp.json",
     ".yarnrc.yml",
     ".pnpmfile.cjs",
     ".pnpmfile.mjs",
@@ -72,28 +77,51 @@ const ALWAYS_SKIP: &[&str] = &[
     "Pods",
 ];
 
+/// What one pass over the tree turned up.
+pub struct Discovery {
+    /// Directories to scan, sorted so a run over the same tree always reports
+    /// in the same order.
+    pub units: Vec<PathBuf>,
+    /// Set when the repository has an index that could not be read. The walk
+    /// still happened, but it could not be checked against what is committed,
+    /// so the result is a partial answer and has to say so.
+    pub unreadable: Option<Unreadable>,
+}
+
 /// Every directory under `root` that looks like a project, including `root`
-/// itself, sorted so a run over the same tree always reports in the same order.
+/// itself.
 ///
 /// `max_depth` counts directories below the root; 0 means the root only.
-pub fn scan_units(root: &Path, max_depth: usize) -> Vec<PathBuf> {
+pub fn discover(root: &Path, max_depth: usize) -> Discovery {
     let mut units: BTreeSet<PathBuf> = BTreeSet::new();
     // The root is always scanned, marker or not: the caller asked for it, and
     // reporting nothing because a repository keeps its config elsewhere would
     // be surprising.
     units.insert(root.to_path_buf());
 
+    let index = gitindex::read(root);
+
     if max_depth == 0 {
-        return units.into_iter().collect();
+        return Discovery {
+            units: units.into_iter().collect(),
+            unreadable: index_unreadable(&index),
+        };
     }
+
+    // Ignore rules describe what git will not pick up next. They do not describe
+    // what a clone contains, and treating them as if they did is only safe
+    // because the index is read afterwards to put back what they hid. When the
+    // index is the thing we could not read, that check is gone — so the rules
+    // stop being trusted rather than being trusted blindly.
+    let trust_ignore = !matches!(index, Index::Unreadable(_));
 
     let walker = WalkBuilder::new(root)
         // `.vscode` and `.claude` are hidden directories and are the whole
         // point of this tool, so hidden entries have to stay in.
         .hidden(false)
-        .git_ignore(true)
+        .git_ignore(trust_ignore)
         .git_global(false)
-        .git_exclude(true)
+        .git_exclude(trust_ignore)
         .parents(false)
         .follow_links(false)
         .max_depth(Some(max_depth + 1))
@@ -119,12 +147,75 @@ pub fn scan_units(root: &Path, max_depth: usize) -> Vec<PathBuf> {
         }
     }
 
-    units.into_iter().collect()
+    // Whatever the walk skipped that is nonetheless committed. A path can only
+    // get here by being in the index, so this adds back exactly the directories
+    // an ignore rule was hiding from a clone — and nothing else.
+    if let Index::Tracked(paths) = &index {
+        for tracked in paths {
+            let Some(rel) = unit_of(tracked) else {
+                continue;
+            };
+            if rel.is_empty() || rel.split('/').count() > max_depth {
+                continue;
+            }
+            if rel.split('/').any(|part| ALWAYS_SKIP.contains(&part)) {
+                continue;
+            }
+            let dir = root.join(&rel);
+            // The file is committed; the directory may still have been deleted
+            // in this working tree, and there is nothing to read if it was.
+            if dir.is_dir() && has_marker(&dir) {
+                units.insert(dir);
+            }
+        }
+    }
+
+    Discovery {
+        units: units.into_iter().collect(),
+        unreadable: index_unreadable(&index),
+    }
+}
+
+/// Every directory under `root` that looks like a project.
+///
+/// The short form of [`discover`], for callers that only want the list.
+pub fn scan_units(root: &Path, max_depth: usize) -> Vec<PathBuf> {
+    discover(root, max_depth).units
+}
+
+fn index_unreadable(index: &Index) -> Option<Unreadable> {
+    match index {
+        Index::Unreadable(reason) => Some(Unreadable {
+            file: ".git/index".into(),
+            reason: reason.clone(),
+        }),
+        _ => None,
+    }
+}
+
+/// The project directory a tracked path belongs to, relative to the repository
+/// root, or `None` if the path is not one of the files a scanner reads.
+fn unit_of(tracked: &str) -> Option<String> {
+    let mut parts: Vec<&str> = tracked.split('/').collect();
+    let file = parts.pop()?;
+
+    // A marker directory anywhere along the path names the project above it:
+    // `packages/api/.vscode/tasks.json` is `packages/api`.
+    if let Some(at) = parts.iter().position(|part| DIR_MARKERS.contains(part)) {
+        return Some(parts[..at].join("/"));
+    }
+
+    if FILE_MARKERS.contains(&file) || file.ends_with(".code-workspace") {
+        return Some(parts.join("/"));
+    }
+
+    None
 }
 
 fn has_marker(dir: &Path) -> bool {
-    PROJECT_MARKERS
+    DIR_MARKERS
         .iter()
+        .chain(FILE_MARKERS)
         .any(|marker| dir.join(marker).exists())
         || std::fs::read_dir(dir).is_ok_and(|entries| {
             entries.flatten().any(|entry| {

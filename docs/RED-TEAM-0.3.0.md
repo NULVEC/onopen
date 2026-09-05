@@ -109,6 +109,8 @@ Ranking is by expected harm × real-world frequency × reliable detectability, n
 
 The negative list is deliberate. Onopen should not become a catalogue of every build system that can execute code. It should report surprising, configuration-mediated execution paths with a trigger the user can reason about.
 
+*What happened since.* This document is the 0.3.0 audit and is left as it was written; the backlog was worked in the order above. Rows 1–18 shipped in 0.3.0 and rows 21–23 in 0.4.0. Row 19, carried here as a known limit, was closed in 0.5.0: onopen reads `.git/index` directly and puts back what an ignore rule was hiding from a clone, so `.gitignore` no longer decides what the scanner may see. Rows 20, 24 and 25 remain deliberate refusals for the reasons given above.
+
 # Part 2 — Implementable specifications
 
 ## 1. `agent/cursor-command-hook`
