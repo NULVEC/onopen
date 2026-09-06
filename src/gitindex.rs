@@ -57,6 +57,9 @@ pub fn read(root: &Path) -> Index {
     };
 
     let index = git_dir.join("index");
+    if is_external_link(&index, root) {
+        return Index::Unreadable(".git/index is a symbolic link outside the repository".into());
+    }
     let meta = match std::fs::metadata(&index) {
         Ok(meta) => meta,
         // A repository with no index has nothing staged and nothing tracked —
@@ -78,10 +81,30 @@ pub fn read(root: &Path) -> Index {
         Err(e) => return Index::Unreadable(format!("cannot be read: {e}")),
     };
 
-    match parse(&bytes) {
+    match parse_index(&bytes, &git_dir) {
         Ok(paths) => Index::Tracked(paths),
         Err(reason) => Index::Unreadable(reason),
     }
+}
+
+/// Parse raw index bytes for fuzzing and format-level tests.
+#[doc(hidden)]
+pub fn parse_bytes(bytes: &[u8]) -> Result<Vec<String>, String> {
+    parse(bytes)
+}
+
+fn is_external_link(path: &Path, root: &Path) -> bool {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    if !meta.file_type().is_symlink() {
+        return false;
+    }
+    let Ok(target) = std::fs::canonicalize(path) else {
+        return true;
+    };
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    !target.starts_with(root)
 }
 
 /// Where this repository keeps its administrative files.
@@ -90,6 +113,17 @@ pub fn read(root: &Path) -> Index {
 /// holding the path to the real one.
 fn git_dir(root: &Path) -> Result<Option<PathBuf>, String> {
     let dot = root.join(".git");
+
+    if let Ok(meta) = std::fs::symlink_metadata(&dot) {
+        if meta.file_type().is_symlink() {
+            let target = std::fs::canonicalize(&dot)
+                .map_err(|e| format!(".git symbolic link cannot be resolved: {e}"))?;
+            let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+            if !target.starts_with(&root) {
+                return Err(".git symbolic link points outside the repository".into());
+            }
+        }
+    }
 
     match std::fs::metadata(&dot) {
         Ok(meta) if meta.is_dir() => return Ok(Some(dot)),
@@ -110,11 +144,205 @@ fn git_dir(root: &Path) -> Result<Option<PathBuf>, String> {
     }
 
     let target = Path::new(target);
-    Ok(Some(if target.is_absolute() {
+    let resolved = if target.is_absolute() {
         target.to_path_buf()
     } else {
         root.join(target)
-    }))
+    };
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let resolved = resolved.canonicalize().unwrap_or(resolved);
+    if !resolved.starts_with(&root) {
+        return Err("is a gitdir file pointing outside the repository".into());
+    }
+    Ok(Some(resolved))
+}
+
+fn parse_index(bytes: &[u8], git_dir: &Path) -> Result<Vec<String>, String> {
+    if !has_link_extension(bytes) {
+        return parse(bytes);
+    }
+
+    // SHA-1 is the normal format. A SHA-256 repository is identified by the
+    // shared-index file name length; try both candidates and keep the one that
+    // points at a parseable shared index.
+    let mut last_error = None;
+    for hash_len in HASH_LENGTHS {
+        match parse_split_index(bytes, git_dir, hash_len) {
+            Ok(paths) => return Ok(paths),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| "split index could not be read".into()))
+}
+
+fn parse_split_index(bytes: &[u8], git_dir: &Path, hash_len: usize) -> Result<Vec<String>, String> {
+    let overlay = parse_overlay(bytes)?;
+    let link = link_extension(bytes, hash_len)?;
+    let shared = git_dir.join(format!("sharedindex.{}", hex(&link.hash)));
+    let shared_bytes = std::fs::read(&shared)
+        .map_err(|e| format!("split index shared file cannot be read: {e}"))?;
+    let shared_paths = parse(&shared_bytes)?;
+    let deleted = ewah_bits(&link.delete, shared_paths.len())?;
+    let replaced = ewah_bits(&link.replace, shared_paths.len())?;
+    if replaced.iter().any(|i| *i >= shared_paths.len()) {
+        return Err("split index replacement bitmap is out of range".into());
+    }
+    if overlay.len() < replaced.len() {
+        return Err("split index has fewer replacement entries than its bitmap".into());
+    }
+    let mut overlay = overlay.into_iter();
+    let mut result = Vec::with_capacity(shared_paths.len() + overlay.len());
+    for (index, path) in shared_paths.into_iter().enumerate() {
+        if deleted.contains(&index) {
+            continue;
+        }
+        if replaced.contains(&index) {
+            let replacement = overlay.next().ok_or("split index replacement is missing")?;
+            result.push(if replacement.is_empty() {
+                path
+            } else {
+                replacement
+            });
+        } else {
+            result.push(path);
+        }
+    }
+    result.extend(overlay);
+    result.sort();
+    Ok(result)
+}
+
+fn has_link_extension(bytes: &[u8]) -> bool {
+    bytes.windows(4).any(|window| window == b"link")
+}
+
+struct LinkExtension {
+    hash: Vec<u8>,
+    delete: Vec<u8>,
+    replace: Vec<u8>,
+}
+
+fn link_extension(bytes: &[u8], hash_len: usize) -> Result<LinkExtension, String> {
+    let at = bytes
+        .windows(4)
+        .position(|window| window == b"link")
+        .ok_or_else(|| "split index has no link extension".to_string())?;
+    let size_at = at.checked_add(4).ok_or("split index extension overflow")?;
+    let size_end = size_at
+        .checked_add(4)
+        .ok_or("split index extension overflow")?;
+    let size = u32::from_be_bytes(
+        bytes
+            .get(size_at..size_end)
+            .ok_or("truncated link extension")?
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    let data_start = size_end;
+    let data_end = data_start
+        .checked_add(size)
+        .ok_or("split index extension overflow")?;
+    let data = bytes
+        .get(data_start..data_end)
+        .ok_or("truncated link extension")?;
+    if data.len() < hash_len {
+        return Err("link extension has no shared-index hash".into());
+    }
+    let mut pos = hash_len;
+    let delete_end = ewah_end(data, pos)?;
+    let delete = data[pos..delete_end].to_vec();
+    pos = delete_end;
+    let replace_end = ewah_end(data, pos)?;
+    Ok(LinkExtension {
+        hash: data[..hash_len].to_vec(),
+        delete,
+        replace: data[pos..replace_end].to_vec(),
+    })
+}
+
+fn ewah_end(bytes: &[u8], start: usize) -> Result<usize, String> {
+    let header_end = start.checked_add(8).ok_or("EWAH header overflow")?;
+    let header = bytes
+        .get(start..header_end)
+        .ok_or("truncated EWAH header")?;
+    let words = u32::from_be_bytes(header[4..8].try_into().unwrap()) as usize;
+    let end = header_end
+        .checked_add(words.checked_mul(8).ok_or("EWAH size overflow")?)
+        .and_then(|end| end.checked_add(4))
+        .ok_or("EWAH size overflow")?;
+    if end > bytes.len() {
+        Err("truncated EWAH bitmap".into())
+    } else {
+        Ok(end)
+    }
+}
+
+fn ewah_bits(bytes: &[u8], limit: usize) -> Result<std::collections::BTreeSet<usize>, String> {
+    if bytes.len() < 8 {
+        return Err("truncated EWAH bitmap".into());
+    }
+    let bit_size = u32::from_be_bytes(bytes[..4].try_into().unwrap()) as usize;
+    if bit_size > limit.saturating_mul(2).saturating_add(1024) {
+        return Err("split index bitmap is implausibly large".into());
+    }
+    let words = u32::from_be_bytes(bytes[4..8].try_into().unwrap()) as usize;
+    let mut pos = 8;
+    let mut output = Vec::new();
+    let mut consumed = 0usize;
+    while consumed < words {
+        let control = u64::from_be_bytes(
+            bytes
+                .get(pos..pos + 8)
+                .ok_or("truncated EWAH word")?
+                .try_into()
+                .unwrap(),
+        );
+        pos += 8;
+        consumed += 1;
+        let running = ((control >> 63) & 1) as usize;
+        let running_len = ((control >> 32) & 0x7fff_ffff) as usize;
+        let literals = (control & 0xffff_ffff) as usize;
+        if consumed
+            .checked_add(literals)
+            .is_none_or(|count| count > words)
+        {
+            return Err("EWAH literal count exceeds its buffer".into());
+        }
+        for _ in 0..running_len * 64 {
+            output.extend(std::iter::repeat_n(running != 0, 1));
+        }
+        for _ in 0..literals {
+            let word = u64::from_be_bytes(
+                bytes
+                    .get(pos..pos + 8)
+                    .ok_or("truncated EWAH literal")?
+                    .try_into()
+                    .unwrap(),
+            );
+            pos += 8;
+            for bit in 0..64 {
+                output.push(word & (1 << bit) != 0);
+            }
+            consumed += 1;
+        }
+    }
+    if pos.checked_add(4).is_none_or(|end| end > bytes.len()) {
+        return Err("truncated EWAH position".into());
+    }
+    let _rlw_pos = u32::from_be_bytes(bytes[pos..pos + 4].try_into().unwrap());
+    if words != 0 && output.len() < bit_size {
+        return Err("EWAH bitmap ended before its declared bit size".into());
+    }
+    Ok(output
+        .into_iter()
+        .take(bit_size)
+        .enumerate()
+        .filter_map(|(i, bit)| bit.then_some(i))
+        .collect())
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// Parse the entry table of a `DIRC` index.
@@ -177,6 +405,33 @@ const NAME_MASK: u16 = 0x0FFF;
 /// bytes and twelve bytes of hash land where the flags belong — which passes a
 /// bounds check and almost never passes those two.
 fn entries(bytes: &[u8], version: u32, count: usize, hash_len: usize) -> Option<Vec<String>> {
+    entries_with_empty(bytes, version, count, hash_len, false)
+}
+
+fn parse_overlay(bytes: &[u8]) -> Result<Vec<String>, String> {
+    if bytes.len() < 12 || &bytes[..4] != b"DIRC" {
+        return Err("split index overlay has no valid header".into());
+    }
+    let version = u32::from_be_bytes(bytes[4..8].try_into().unwrap());
+    let count = u32::from_be_bytes(bytes[8..12].try_into().unwrap()) as usize;
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    for hash_len in HASH_LENGTHS {
+        if let Some(paths) = entries_with_empty(bytes, version, count, hash_len, true) {
+            return Ok(paths);
+        }
+    }
+    Err("split index overlay entries do not parse".into())
+}
+
+fn entries_with_empty(
+    bytes: &[u8],
+    version: u32,
+    count: usize,
+    hash_len: usize,
+    allow_empty: bool,
+) -> Option<Vec<String>> {
     let mut paths = Vec::with_capacity(count.min(4096));
     let mut previous: Vec<u8> = Vec::new();
     let mut previous_stage = 0u16;
@@ -227,7 +482,7 @@ fn entries(bytes: &[u8], version: u32, count: usize, hash_len: usize) -> Option<
             return None;
         }
         name.extend_from_slice(suffix);
-        if !usable(&name) {
+        if !(usable(&name) || allow_empty && name.is_empty()) {
             return None;
         }
 
@@ -237,10 +492,13 @@ fn entries(bytes: &[u8], version: u32, count: usize, hash_len: usize) -> Option<
             return None;
         }
 
-        // Entries are sorted by name, and a path repeats only across the stages
-        // of a merge conflict. Bytes that happen to look like a path do not
-        // usually arrive in order.
-        if entry > 0 && (name.as_slice(), stage) <= (previous.as_slice(), previous_stage) {
+        // Split-index overlays can contain replacement entries whose name is
+        // intentionally left empty because the shared index already carries it.
+        // Those placeholders are legal in the overlay table, and the path is
+        // recovered from the shared index rather than from the empty name.
+        if allow_empty && name.is_empty() {
+            // Keep the last non-empty entry as the ordering baseline.
+        } else if entry > 0 && (name.as_slice(), stage) <= (previous.as_slice(), previous_stage) {
             return None;
         }
 
@@ -258,8 +516,10 @@ fn entries(bytes: &[u8], version: u32, count: usize, hash_len: usize) -> Option<
         }
 
         paths.push(String::from_utf8_lossy(&name).into_owned());
-        previous = name;
-        previous_stage = stage;
+        if !(allow_empty && name.is_empty()) {
+            previous = name;
+            previous_stage = stage;
+        }
     }
 
     // The file ends with a checksum over everything before it. If there is not
@@ -285,9 +545,13 @@ fn usable(name: &[u8]) -> bool {
     if name.len() >= 2 && name[1] == b':' {
         return false;
     }
-    !name
-        .split(|b| *b == b'/')
-        .any(|part| part == b".." || part.is_empty())
+    let mut parts = name.split(|b| *b == b'/').peekable();
+    while let Some(part) = parts.next() {
+        if part == b".." || (part.is_empty() && parts.peek().is_some()) {
+            return false;
+        }
+    }
+    true
 }
 
 /// The variable-width integer version 4 uses for its prefix lengths.
@@ -462,6 +726,12 @@ mod tests {
         // it to the scan root would walk out of the repository.
         let bytes = Builder::new(2).add("../../../etc/profile.d").build();
         assert!(parse(&bytes).is_err());
+    }
+
+    #[test]
+    fn reads_sparse_directory_entries() {
+        let bytes = Builder::new(2).add("packages/api/").build();
+        assert_eq!(parse(&bytes).unwrap(), vec!["packages/api/"]);
     }
 
     #[test]

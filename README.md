@@ -122,13 +122,13 @@ file or another scan failure.
 | Scanner | Files | Looking for |
 |---|---|---|
 | `vscode` | `.vscode/*.json`, `*.code-workspace` | automatic tasks, executable settings, terminal env injection, debug prerequisites |
-| `agents` | Claude, Gemini and Cursor settings/hooks | command hooks, Cursor environment commands, blanket permission allowlists |
+| `agents` | Claude, Gemini, Cursor, Windsurf, Continue and Aider settings/hooks | command hooks, agent test/lint commands, Cursor environment commands, blanket permission allowlists |
 | `mcp` | `.mcp.json`, `.vscode/mcp.json`, `.cursor/mcp.json`, agent settings | servers spawned at session start, `npx`/`uvx` fetch-and-run servers |
-| `packages` | npm, pnpm, Yarn, Composer and Bundler config | install hooks, local package-manager code/plugins, build approvals, direct URL dependencies |
-| `python` | `setup.py`, `pyproject.toml`, `conftest.py`, `sitecustomize.py` | executable setup files, local build backends and automatic imports |
+| `packages` | npm, pnpm, Bun, Yarn, Composer and Bundler config | install hooks, preload modules, npm startup options, local package-manager code/plugins, build approvals, direct URL dependencies |
+| `python` | `setup.py`, `pyproject.toml`, `conftest.py`, `noxfile.py`, `sitecustomize.py`, `usercustomize.py`, `.pth` | executable setup/session files, local build backends and automatic imports |
 | `cargo` | `Cargo.toml`, `.cargo/config*` | build scripts, compiler wrappers, runners and linkers |
 | `environments` | `.envrc`, `mise.toml`, `.mise.toml`, `shell.nix`, `flake.nix` | directory, lifecycle and development-shell hooks |
-| `editors` | `.idea/startupTasks.xml`, `.idea/watcherTasks.xml`, `.dir-locals.el`, `.exrc` | JetBrains startup tasks and file watchers, Emacs `eval` entries, project-local Vim rc |
+| `editors` | `.idea/startupTasks.xml`, `.idea/watcherTasks.xml`, `.zed/tasks.json`, `.zed/debug.json`, `.dir-locals.el`, `.exrc` | JetBrains and Zed commands, Emacs `eval` entries, project-local Vim rc |
 | `devcontainer` | `.devcontainer/**/devcontainer.json`, `.devcontainer.json` | `initializeCommand` (runs on the **host**), container lifecycle commands, features |
 | `githooks` | Git hook paths and `.pre-commit-config.yaml` | live/checked-in hooks and repository-defined pre-commit commands |
 
@@ -205,6 +205,11 @@ echo 'packages/' >> .gitignore
 An index that exists and cannot be parsed is reported like any other unreadable
 file, and ignore rules stop being trusted for that run rather than being trusted
 without anything to check them against.
+
+The index reader is bounded at 64 MiB. A larger index is reported as an
+incomplete scan (exit `2`) instead of being loaded without a resource limit.
+Split-index and sparse-index forms are supported, including their shared and
+directory entries.
 
 It deliberately does not report every command in every build system. It does
 not inspect Gradle, CMake, Make or Docker build commands, hosted CI workflows,

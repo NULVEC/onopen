@@ -99,6 +99,20 @@ fn a_committed_task_is_found_even_when_gitignore_covers_it() {
 }
 
 #[test]
+fn a_sparse_directory_entry_restores_a_hidden_project() {
+    let dir = repo("sparse-directory");
+    put(&dir, "packages/api/.vscode/tasks.json", FOLDER_OPEN_TASK);
+    put(&dir, ".gitignore", "packages/\n");
+    track(&dir, &["packages/api/"]);
+
+    let unit = scan_repo(&dir);
+    assert!(
+        rules(&unit).contains(&"vscode/task-run-on-folder-open"),
+        "a sparse directory entry should restore its project"
+    );
+}
+
+#[test]
 fn ignoring_the_config_directory_itself_does_not_hide_it() {
     // The narrower version of the same trick: ignore `.vscode` rather than the
     // workspace, so only the interesting directory disappears.
@@ -132,6 +146,127 @@ fn an_untracked_ignored_directory_stays_ignored() {
         unit.findings.is_empty(),
         "nothing in scratch/ is in the clone, got {:?}",
         rules(&unit)
+    );
+}
+
+#[test]
+fn a_tracked_build_directory_is_restored_even_when_ignored() {
+    let dir = repo("tracked-build");
+    put(&dir, "build/.vscode/tasks.json", FOLDER_OPEN_TASK);
+    put(&dir, ".gitignore", "build/\n");
+    track(&dir, &[".gitignore", "build/.vscode/tasks.json"]);
+
+    let unit = scan_repo(&dir);
+    assert!(
+        rules(&unit).contains(&"vscode/task-run-on-folder-open"),
+        "tracked build output stays in the clone and must be scanned: {:?}",
+        rules(&unit)
+    );
+    assert_eq!(unit.findings[0].file, "build/.vscode/tasks.json");
+}
+
+#[test]
+fn split_index_overlay_entries_with_empty_names_are_accepted() {
+    let dir = repo("split-overlay");
+    fs::create_dir_all(dir.join("packages/api/.vscode")).unwrap();
+    put(&dir, "packages/api/.vscode/tasks.json", FOLDER_OPEN_TASK);
+    put(&dir, ".gitignore", "packages/\n");
+
+    let shared = [0x00u8; 40];
+    let shared_entries = [b"packages/api/.vscode/tasks.json"];
+    let mut entries = Vec::new();
+    for name in shared_entries {
+        entries.extend_from_slice(&shared);
+        entries.extend_from_slice(&[0x11u8; 20]);
+        let name_len = u16::try_from(name.len()).unwrap().min(0xFFF);
+        entries.extend_from_slice(&name_len.to_be_bytes());
+        entries.extend_from_slice(name);
+        entries.push(0);
+        let used = entries.len();
+        entries.resize(used.next_multiple_of(8), 0);
+    }
+
+    let mut shared_index = Vec::from(*b"DIRC");
+    shared_index.extend_from_slice(&2u32.to_be_bytes());
+    shared_index.extend_from_slice(&u32::try_from(1).unwrap().to_be_bytes());
+    shared_index.extend_from_slice(&entries);
+    shared_index.extend_from_slice(&[0u8; 20]);
+
+    let hash = [
+        0x9eu8, 0x59, 0xc2, 0x40, 0x47, 0x6a, 0xb8, 0x4f, 0x59, 0xb2, 0x5f, 0x1d, 0x26, 0x85, 0x6f,
+        0xf0, 0x6b, 0xea, 0x8b, 0xc9,
+    ];
+    let mut overlay = Vec::from(*b"DIRC");
+    overlay.extend_from_slice(&2u32.to_be_bytes());
+    overlay.extend_from_slice(&2u32.to_be_bytes());
+    overlay.extend_from_slice(&[0u8; 40]);
+    overlay.extend_from_slice(&[0x11u8; 20]);
+    overlay.extend_from_slice(&0u16.to_be_bytes());
+    overlay.push(0);
+    overlay.resize(overlay.len().next_multiple_of(8), 0);
+    overlay.extend_from_slice(&[0u8; 40]);
+    overlay.extend_from_slice(&[0x11u8; 20]);
+    overlay.extend_from_slice(&0u16.to_be_bytes());
+    overlay.push(0);
+    overlay.resize(overlay.len().next_multiple_of(8), 0);
+    overlay.extend_from_slice(&[0u8; 20]);
+
+    let mut link = hash.to_vec();
+    link.extend_from_slice(&[0u8; 8]);
+    link.extend_from_slice(&[0u8; 8]);
+    let mut payload = Vec::new();
+    payload.extend_from_slice(&link);
+    payload.extend_from_slice(&[0u8; 8]);
+    payload.extend_from_slice(&[0u8; 8]);
+    let mut ext = Vec::from(*b"link");
+    ext.extend_from_slice(&u32::try_from(payload.len()).unwrap().to_be_bytes());
+    ext.extend_from_slice(&payload);
+    overlay.extend_from_slice(&ext);
+
+    let shared_name = hash
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    fs::create_dir_all(dir.join(".git")).unwrap();
+    fs::write(dir.join(".git/index"), overlay).unwrap();
+    fs::write(
+        dir.join(format!(".git/sharedindex.{shared_name}")),
+        shared_index,
+    )
+    .unwrap();
+
+    let unit = scan_repo(&dir);
+    assert!(
+        rules(&unit).contains(&"vscode/task-run-on-folder-open"),
+        "split-index overlays with empty names must recover the shared entry: {:?}",
+        rules(&unit)
+    );
+}
+
+#[test]
+fn depth_zero_skips_index_reading_for_root_only_scans() {
+    let dir = repo("depth0-index");
+    fs::create_dir_all(dir.join(".git")).unwrap();
+    fs::write(dir.join(".git/index"), b"not an index").unwrap();
+    put(&dir, "package.json", "{}");
+
+    let unit = scan(
+        &dir,
+        &ScanOptions {
+            max_depth: 0,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(
+        unit.findings.is_empty(),
+        "root-only scans must not fail on an unreadable index: {:#?}",
+        unit.unreadable
+    );
+    assert!(
+        unit.unreadable.is_empty(),
+        "depth 0 must suppress unreadable index noise: {:#?}",
+        unit.unreadable
     );
 }
 

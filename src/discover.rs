@@ -20,6 +20,9 @@ const DIR_MARKERS: &[&str] = &[
     ".claude",
     ".cursor",
     ".gemini",
+    ".windsurf",
+    ".continue",
+    ".zed",
     ".devcontainer",
     ".githooks",
     ".husky",
@@ -32,6 +35,8 @@ const FILE_MARKERS: &[&str] = &[
     ".exrc",
     ".devcontainer.json",
     ".mcp.json",
+    ".npmrc",
+    "bunfig.toml",
     ".yarnrc.yml",
     ".pnpmfile.cjs",
     ".pnpmfile.mjs",
@@ -43,6 +48,8 @@ const FILE_MARKERS: &[&str] = &[
     "pyproject.toml",
     "setup.py",
     "sitecustomize.py",
+    "usercustomize.py",
+    "noxfile.py",
     "conftest.py",
     "Cargo.toml",
     "pnpm-workspace.yaml",
@@ -50,13 +57,15 @@ const FILE_MARKERS: &[&str] = &[
     "package.json",
     "composer.json",
     "Gemfile",
+    "gems.rb",
+    ".aider.conf.yml",
 ];
 
-/// Directories that never contain a project of the user's own. `.gitignore`
-/// covers most of these in a well-kept repository, but not in every one, and a
-/// scan that wanders into `node_modules` is both slow and useless — those are
-/// dependencies, not the project being opened.
-const ALWAYS_SKIP: &[&str] = &[
+/// Directories that are always treated as non-project content on the walk.
+/// Build output names are skipped only when they are untracked; a committed
+/// config under `build/` or `dist/` is still part of the project and must be
+/// restored from the index.
+const WALK_SKIP: &[&str] = &[
     ".git",
     "node_modules",
     "target",
@@ -76,6 +85,11 @@ const ALWAYS_SKIP: &[&str] = &[
     ".gradle",
     "Pods",
 ];
+
+/// Dependency directories that must never be treated as a tracked project,
+/// even when they are committed by mistake. The repository's own code is what
+/// is being opened, not the dependency tree it happens to contain.
+const TRACKED_SKIP: &[&str] = &[".git", "node_modules", "vendor", "Pods"];
 
 /// What one pass over the tree turned up.
 pub struct Discovery {
@@ -99,14 +113,14 @@ pub fn discover(root: &Path, max_depth: usize) -> Discovery {
     // be surprising.
     units.insert(root.to_path_buf());
 
-    let index = gitindex::read(root);
-
     if max_depth == 0 {
         return Discovery {
             units: units.into_iter().collect(),
-            unreadable: index_unreadable(&index),
+            unreadable: None,
         };
     }
+
+    let index = gitindex::read(root);
 
     // Ignore rules describe what git will not pick up next. They do not describe
     // what a clone contains, and treating them as if they did is only safe
@@ -124,12 +138,12 @@ pub fn discover(root: &Path, max_depth: usize) -> Discovery {
         .git_exclude(trust_ignore)
         .parents(false)
         .follow_links(false)
-        .max_depth(Some(max_depth + 1))
+        .max_depth(Some(max_depth))
         .filter_entry(|entry| {
             entry
                 .file_name()
                 .to_str()
-                .map(|name| !ALWAYS_SKIP.contains(&name))
+                .map(|name| !WALK_SKIP.contains(&name))
                 .unwrap_or(true)
         })
         .build();
@@ -158,7 +172,7 @@ pub fn discover(root: &Path, max_depth: usize) -> Discovery {
             if rel.is_empty() || rel.split('/').count() > max_depth {
                 continue;
             }
-            if rel.split('/').any(|part| ALWAYS_SKIP.contains(&part)) {
+            if rel.split('/').any(|part| TRACKED_SKIP.contains(&part)) {
                 continue;
             }
             let dir = root.join(&rel);
@@ -196,6 +210,9 @@ fn index_unreadable(index: &Index) -> Option<Unreadable> {
 /// The project directory a tracked path belongs to, relative to the repository
 /// root, or `None` if the path is not one of the files a scanner reads.
 fn unit_of(tracked: &str) -> Option<String> {
+    if tracked.ends_with('/') {
+        return Some(tracked.trim_end_matches('/').to_string());
+    }
     let mut parts: Vec<&str> = tracked.split('/').collect();
     let file = parts.pop()?;
 

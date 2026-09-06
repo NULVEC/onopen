@@ -1,0 +1,21 @@
+[package]
+name = "onopen-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+onopen = { path = ".." }
+
+[[bin]]
+name = "gitindex"
+path = "fuzz_targets/gitindex.rs"
+test = false
+doc = false
+bench = false
