@@ -7,8 +7,8 @@
 The index reader now understands Git split indexes, including shared-index
 overlays, deletions and additions, and sparse directory entries. Symlinked
 index paths and gitdir indirections outside the scan root are rejected rather
-than read. Filesystem discovery now uses the same depth boundary as index
-restoration.
+than read. The depth fix also makes `--depth N` reach exactly N levels below
+the scan root, so the default depth of 6 is one level less than 0.5.0 did.
 
 This release also detects npm `preprepare`/`postprepare`, Bun preload modules,
 `.npmrc` Node startup options, `gems.rb`, nox and Python startup imports, plus

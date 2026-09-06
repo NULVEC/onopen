@@ -188,7 +188,8 @@ It walks sub-projects as well as the root, because a monorepo hides a
 `folderOpen` task one workspace down and reporting only the top directory calls
 that repository clean. Dependency directories — `node_modules`, `vendor`,
 `target` and their kin — are never entered: what is in them is not the project
-you are opening. `--depth 0` restores the root-only behaviour.
+you are opening. `--depth 0` restores the root-only behaviour and skips the
+index read entirely for that run.
 
 `.gitignore` is honoured for files git would ignore, and for nothing else. Git
 applies ignore rules only to files it does not already track, so a file that was
