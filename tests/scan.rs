@@ -3,6 +3,9 @@
 use onopen::finding::{ScanUnit, Severity};
 use onopen::{ScanOptions, scan};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static NEXT_IGNORE_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -294,11 +297,8 @@ fn the_single_project_fixtures_are_unaffected_by_the_walk() {
 // ---------------------------------------------------------------------------
 
 fn trapped_with_ignore(contents: &str) -> (PathBuf, onopen::finding::ScanUnit) {
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("onopen-ignore-{stamp}"));
+    let n = NEXT_IGNORE_FIXTURE.fetch_add(1, Ordering::Relaxed);
+    let root = std::env::temp_dir().join(format!("onopen-ignore-{}-{n}", std::process::id()));
     std::fs::create_dir_all(root.join(".vscode")).unwrap();
     std::fs::write(
         root.join(".vscode/tasks.json"),

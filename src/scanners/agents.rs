@@ -46,8 +46,56 @@ impl Scanner for Agents {
                 unit.clear(*rel);
             }
         }
+        scan_command_config(
+            ctx,
+            &mut unit,
+            ".windsurf/config.json",
+            "agent/windsurf-command",
+        );
+        scan_command_config(
+            ctx,
+            &mut unit,
+            ".continue/config.yaml",
+            "agent/continue-command",
+        );
+        scan_command_config(
+            ctx,
+            &mut unit,
+            ".continue/config.yml",
+            "agent/continue-command",
+        );
+        scan_command_config(ctx, &mut unit, ".aider.conf.yml", "agent/aider-command");
 
         unit
+    }
+}
+
+fn scan_command_config(ctx: &Ctx, unit: &mut ScanUnit, rel: &str, rule: &'static str) {
+    let Some(source) = ctx.read(rel, unit) else {
+        return;
+    };
+    let before = unit.findings.len();
+    for line in source.lines() {
+        let Some((key, value)) = line.split_once(':').or_else(|| line.split_once('=')) else {
+            continue;
+        };
+        let key = key.trim().trim_matches(['"', '\'', '{', '}', ',']);
+        let value = value.trim().trim_matches(['"', '\'', '{', '}', ',']);
+        if matches!(key, "testCommand" | "lintCommand" | "test-cmd" | "lint-cmd")
+            && !value.is_empty()
+        {
+            unit.push(Finding::new(
+                rule,
+                rel,
+                key,
+                value,
+                Severity::Deferred,
+                "This checked-in agent command runs repository tooling when the configured action is invoked.",
+            ));
+        }
+    }
+    if unit.findings.len() == before {
+        unit.clear(rel);
     }
 }
 

@@ -33,7 +33,58 @@ impl Scanner for Python {
             "Can be imported automatically during Python site initialization when the project is on the import path.",
         );
         scan_conftest(ctx, &mut unit);
+        scan_code_file(
+            ctx,
+            &mut unit,
+            "noxfile.py",
+            "python/noxfile",
+            "executed by nox",
+            Severity::Deferred,
+            "Nox evaluates this repository Python file when a session is selected.",
+        );
+        scan_code_file(
+            ctx,
+            &mut unit,
+            "usercustomize.py",
+            "python/usercustomize",
+            "imported by Python site initialization",
+            Severity::Deferred,
+            "Can be imported automatically during Python site initialization.",
+        );
+        scan_pth_files(ctx, &mut unit);
         unit
+    }
+}
+
+fn scan_pth_files(ctx: &Ctx, unit: &mut ScanUnit) {
+    let Ok(entries) = std::fs::read_dir(&ctx.root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.ends_with(".pth") || !entry.file_type().is_ok_and(|t| t.is_file()) {
+            continue;
+        }
+        let rel = ctx.rel(&entry.path());
+        let Some(source) = ctx.read(&rel, unit) else {
+            continue;
+        };
+        let Some(preview) = source
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty() && !line.starts_with('#') && line.starts_with("import "))
+        else {
+            unit.clear(rel);
+            continue;
+        };
+        unit.push(Finding::new(
+            "python/pth-import",
+            rel,
+            "site .pth import",
+            preview,
+            Severity::Deferred,
+            "Python executes import lines in .pth files during site initialization.",
+        ));
     }
 }
 
