@@ -20,6 +20,7 @@
 
 use onopen::finding::ScanUnit;
 use onopen::{ScanOptions, scan};
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -75,6 +76,14 @@ fn index_bytes(paths: &[&str]) -> Vec<u8> {
     index
 }
 
+fn hex_name(bytes: &[u8]) -> String {
+    let mut name = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(&mut name, "{byte:02x}");
+    }
+    name
+}
+
 fn ewah(bit_size: usize, set_bits: &[usize]) -> Vec<u8> {
     let mut literal = 0u64;
     for bit in set_bits {
@@ -103,10 +112,7 @@ fn split_index(
 ) -> (Vec<u8>, Vec<u8>, String) {
     let shared_index = index_bytes(shared);
     let hash = [0x42u8; 20];
-    let shared_name = hash
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
+    let shared_name = hex_name(&hash);
 
     let mut main = index_bytes(overlay);
     main.truncate(main.len() - 20);
@@ -389,10 +395,7 @@ fn split_index_overlay_entries_with_empty_names_are_accepted() {
     ext.extend_from_slice(&payload);
     overlay.extend_from_slice(&ext);
 
-    let shared_name = hash
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
+    let shared_name = hex_name(&hash);
     fs::create_dir_all(dir.join(".git")).unwrap();
     fs::write(dir.join(".git/index"), overlay).unwrap();
     fs::write(
