@@ -213,7 +213,8 @@ fn parse_split_index(bytes: &[u8], git_dir: &Path, hash_len: usize) -> Result<Ve
 }
 
 fn has_link_extension(bytes: &[u8]) -> bool {
-    bytes.windows(4).any(|window| window == b"link")
+    extension_payloads(bytes)
+        .is_ok_and(|extensions| extensions.iter().any(|(sig, _)| *sig == b"link"))
 }
 
 struct LinkExtension {
@@ -223,28 +224,11 @@ struct LinkExtension {
 }
 
 fn link_extension(bytes: &[u8], hash_len: usize) -> Result<LinkExtension, String> {
-    let at = bytes
-        .windows(4)
-        .position(|window| window == b"link")
+    let payload = extension_payloads(bytes)?
+        .into_iter()
+        .find_map(|(sig, payload)| (sig == b"link").then_some(payload))
         .ok_or_else(|| "split index has no link extension".to_string())?;
-    let size_at = at.checked_add(4).ok_or("split index extension overflow")?;
-    let size_end = size_at
-        .checked_add(4)
-        .ok_or("split index extension overflow")?;
-    let size = u32::from_be_bytes(
-        bytes
-            .get(size_at..size_end)
-            .ok_or("truncated link extension")?
-            .try_into()
-            .unwrap(),
-    ) as usize;
-    let data_start = size_end;
-    let data_end = data_start
-        .checked_add(size)
-        .ok_or("split index extension overflow")?;
-    let data = bytes
-        .get(data_start..data_end)
-        .ok_or("truncated link extension")?;
+    let data = payload;
     if data.len() < hash_len {
         return Err("link extension has no shared-index hash".into());
     }
@@ -258,6 +242,124 @@ fn link_extension(bytes: &[u8], hash_len: usize) -> Result<LinkExtension, String
         delete,
         replace: data[pos..replace_end].to_vec(),
     })
+}
+
+fn extension_payloads(bytes: &[u8]) -> Result<Vec<(&[u8], &[u8])>, String> {
+    let after_entries = index_entry_end(bytes).ok_or_else(|| {
+        "index is not parseable enough to scan its extension records".to_string()
+    })?;
+
+    let mut pos = after_entries;
+    let mut extensions = Vec::new();
+    while pos + 8 <= bytes.len() {
+        let sig = &bytes[pos..pos + 4];
+        let size = u32::from_be_bytes(bytes[pos + 4..pos + 8].try_into().unwrap()) as usize;
+        let payload_start = pos.checked_add(8).ok_or("split index extension overflow")?;
+        let payload_end = payload_start
+            .checked_add(size)
+            .ok_or("split index extension overflow")?;
+        if payload_end > bytes.len() {
+            return Err("truncated split index extension".into());
+        }
+        extensions.push((sig, &bytes[payload_start..payload_end]));
+        pos = payload_end;
+        if bytes.len() - pos <= 20 {
+            break;
+        }
+    }
+
+    Ok(extensions)
+}
+
+fn index_entry_end(bytes: &[u8]) -> Option<usize> {
+    if bytes.len() < 12 || &bytes[..4] != b"DIRC" {
+        return None;
+    }
+    let version = u32::from_be_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+    let count = u32::from_be_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
+    for hash_len in HASH_LENGTHS {
+        if let Some(end) = index_entry_end_for_hash(bytes, version, count, hash_len) {
+            return Some(end);
+        }
+    }
+    None
+}
+
+fn index_entry_end_for_hash(
+    bytes: &[u8],
+    version: u32,
+    count: usize,
+    hash_len: usize,
+) -> Option<usize> {
+    let mut pos = 12usize;
+    let mut previous = Vec::new();
+    let mut previous_stage = 0u16;
+
+    for entry in 0..count {
+        let start = pos;
+        let flags_at = start.checked_add(40)?.checked_add(hash_len)?;
+        let after_flags = flags_at.checked_add(2)?;
+        if after_flags > bytes.len() {
+            return None;
+        }
+
+        let flags = u16::from_be_bytes([bytes[flags_at], bytes[flags_at + 1]]);
+        let stage = (flags >> 12) & 0x3;
+        let claimed_len = flags & NAME_MASK;
+        let mut p = after_flags;
+        if flags & 0x4000 != 0 {
+            if version < 3 {
+                return None;
+            }
+            p = p.checked_add(2)?;
+            if p > bytes.len() {
+                return None;
+            }
+        }
+
+        let mut name: Vec<u8> = if version >= 4 {
+            let strip = varint(bytes, &mut p)?;
+            let keep = previous.len().checked_sub(strip)?;
+            previous[..keep].to_vec()
+        } else {
+            Vec::new()
+        };
+
+        let end = bytes.get(p..)?.iter().position(|b| *b == 0)?;
+        let suffix = &bytes[p..p + end];
+        if suffix.iter().any(|b| *b < 0x20) {
+            return None;
+        }
+        name.extend_from_slice(suffix);
+        if name.is_empty() || !usable(&name) {
+            return None;
+        }
+        if claimed_len != NAME_MASK && usize::from(claimed_len) != name.len() {
+            return None;
+        }
+        if entry > 0 && (name.as_slice(), stage) <= (previous.as_slice(), previous_stage) {
+            return None;
+        }
+
+        pos = if version >= 4 {
+            p.checked_add(end)?.checked_add(1)?
+        } else {
+            let used = p.checked_add(end)?.checked_add(1)?.checked_sub(start)?;
+            start.checked_add(used.next_multiple_of(8))?
+        };
+        if pos > bytes.len() {
+            return None;
+        }
+
+        previous = name;
+        previous_stage = stage;
+    }
+
+    if bytes.len().checked_sub(pos)? < hash_len {
+        return None;
+    }
+
+    Some(pos)
 }
 
 fn ewah_end(bytes: &[u8], start: usize) -> Result<usize, String> {
@@ -308,9 +410,10 @@ fn ewah_bits(bytes: &[u8], limit: usize) -> Result<std::collections::BTreeSet<us
         {
             return Err("EWAH literal count exceeds its buffer".into());
         }
-        for _ in 0..running_len * 64 {
-            output.extend(std::iter::repeat_n(running != 0, 1));
-        }
+        let run_bits = running_len
+            .checked_mul(64)
+            .ok_or("EWAH run length overflow")?;
+        output.extend(std::iter::repeat_n(running != 0, run_bits));
         for _ in 0..literals {
             let word = u64::from_be_bytes(
                 bytes
@@ -342,7 +445,12 @@ fn ewah_bits(bytes: &[u8], limit: usize) -> Result<std::collections::BTreeSet<us
 }
 
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        use std::fmt::Write as _;
+        let _ = write!(&mut out, "{byte:02x}");
+    }
+    out
 }
 
 /// Parse the entry table of a `DIRC` index.

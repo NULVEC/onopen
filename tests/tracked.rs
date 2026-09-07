@@ -166,6 +166,22 @@ fn a_tracked_build_directory_is_restored_even_when_ignored() {
 }
 
 #[test]
+fn file_names_containing_link_do_not_trigger_split_index_parsing() {
+    let dir = repo("link-in-name");
+    put(&dir, "linker/.vscode/tasks.json", FOLDER_OPEN_TASK);
+    put(&dir, ".gitignore", "linker/\n");
+    track(&dir, &[".gitignore", "linker/.vscode/tasks.json"]);
+
+    let unit = scan_repo(&dir);
+    assert!(
+        rules(&unit).contains(&"vscode/task-run-on-folder-open"),
+        "a normal tracked file path containing 'link' must still be scanned: {:?}",
+        rules(&unit)
+    );
+    assert_eq!(unit.findings[0].file, "linker/.vscode/tasks.json");
+}
+
+#[test]
 fn split_index_overlay_entries_with_empty_names_are_accepted() {
     let dir = repo("split-overlay");
     fs::create_dir_all(dir.join("packages/api/.vscode")).unwrap();
