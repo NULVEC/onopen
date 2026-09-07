@@ -278,6 +278,44 @@ mod tests {
     }
 
     #[test]
+    fn overlapping_project_markers_are_deduplicated() {
+        let root = tmp("overlap");
+        fs::create_dir_all(root.join("packages/api/.vscode")).unwrap();
+        fs::write(root.join("packages/api/.vscode/tasks.json"), "{}").unwrap();
+        fs::write(root.join("packages/api/package.json"), "{}").unwrap();
+
+        let units = scan_units(&root, 8);
+        assert_eq!(
+            units
+                .iter()
+                .filter(|unit| unit == &&root.join("packages/api"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn symlinked_project_directories_are_not_followed() {
+        let root = tmp("symlink-project");
+        let real = root.join("real");
+        fs::create_dir_all(real.join(".vscode")).unwrap();
+        fs::write(real.join(".vscode/tasks.json"), "{}").unwrap();
+        let linked = root.join("linked");
+
+        #[cfg(unix)]
+        let result = std::os::unix::fs::symlink(&real, &linked);
+        #[cfg(windows)]
+        let result = std::os::windows::fs::symlink_dir(&real, &linked);
+        if result.is_err() {
+            return;
+        }
+
+        let units = scan_units(&root, 8);
+        assert!(units.contains(&real));
+        assert!(!units.contains(&linked));
+    }
+
+    #[test]
     fn skips_dependency_directories() {
         let root = tmp("deps");
         fs::create_dir_all(root.join("node_modules/evil")).unwrap();
