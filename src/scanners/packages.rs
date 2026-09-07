@@ -171,6 +171,7 @@ fn scan_gems_rb(ctx: &Ctx, unit: &mut ScanUnit) {
 fn meaningful_module(source: &str) -> Option<&str> {
     source.lines().map(str::trim).find(|line| {
         !line.is_empty()
+            && !line.starts_with('#')
             && !line.starts_with("//")
             && !line.starts_with("/*")
             && !line.starts_with('*')

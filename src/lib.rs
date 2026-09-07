@@ -46,6 +46,28 @@ pub struct ScanOptions {
 /// (`packages/<name>`, `apps/<name>/<sub>`) without walking a whole disk.
 pub const DEFAULT_MAX_DEPTH: usize = 6;
 
+pub(crate) fn normalize_display_path(path: &str) -> Option<String> {
+    let mut path = path.replace('\\', "/");
+    if let Some(stripped) = path.strip_prefix("//?/") {
+        path = stripped.to_string();
+    }
+    if path.starts_with('/') || path.get(1..2) == Some(":") {
+        return None;
+    }
+
+    let mut parts = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            part => parts.push(part),
+        }
+    }
+    Some(parts.join("/"))
+}
+
 impl Default for ScanOptions {
     fn default() -> Self {
         Self {
@@ -101,7 +123,8 @@ pub fn scan(root: &Path, opts: &ScanOptions) -> Result<ScanUnit> {
         // sub-project's own path put back in front of them.
         let prefix = unit_dir
             .strip_prefix(root)
-            .map(|p| p.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/"))
+            .ok()
+            .and_then(|p| normalize_display_path(&p.to_string_lossy()))
             .unwrap_or_default();
 
         for scanner in &selected {
@@ -128,4 +151,23 @@ pub fn scan(root: &Path, opts: &ScanOptions) -> Result<ScanUnit> {
     }
 
     Ok(unit)
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::normalize_display_path;
+
+    #[test]
+    fn normalizes_cross_platform_display_paths() {
+        assert_eq!(
+            normalize_display_path(r"Packages\API\tasks.json"),
+            Some("Packages/API/tasks.json".into())
+        );
+        assert_eq!(
+            normalize_display_path(r"\\?\Packages\API\tasks.json"),
+            Some("Packages/API/tasks.json".into())
+        );
+        assert_eq!(normalize_display_path("a/../b"), Some("b".into()));
+        assert_eq!(normalize_display_path("../outside"), None);
+    }
 }
