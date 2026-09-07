@@ -182,6 +182,11 @@ fn ordinary_counterparts_stay_clean() {
     put(&root, "tools.pth", "./lib\n");
     put(
         &root,
+        "gems.rb",
+        "# dependency source is configured elsewhere\n",
+    );
+    put(
+        &root,
         "project.code-workspace",
         r#"{"tasks":{"tasks":[{"label":"build","command":"cargo build","runOptions":{"runOn":"default"}}]}}"#,
     );

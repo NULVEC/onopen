@@ -165,14 +165,16 @@ fn parse_index(bytes: &[u8], git_dir: &Path) -> Result<Vec<String>, String> {
     // SHA-1 is the normal format. A SHA-256 repository is identified by the
     // shared-index file name length; try both candidates and keep the one that
     // points at a parseable shared index.
-    let mut last_error = None;
+    let mut first_error = None;
     for hash_len in HASH_LENGTHS {
         match parse_split_index(bytes, git_dir, hash_len) {
             Ok(paths) => return Ok(paths),
-            Err(error) => last_error = Some(error),
+            Err(error) => {
+                first_error.get_or_insert(error);
+            }
         }
     }
-    Err(last_error.unwrap_or_else(|| "split index could not be read".into()))
+    Err(first_error.unwrap_or_else(|| "split index could not be read".into()))
 }
 
 fn parse_split_index(bytes: &[u8], git_dir: &Path, hash_len: usize) -> Result<Vec<String>, String> {

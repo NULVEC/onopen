@@ -2,13 +2,19 @@
 
 ## 0.5.1
 
-### Split and sparse indexes, plus the missing lifecycle surfaces
+### A tracked build directory could make onopen report clean
 
-The index reader now understands Git split indexes, including shared-index
-overlays, deletions, additions and Git's EWAH bitmaps, plus sparse directory entries. Symlinked
-index paths and gitdir indirections outside the scan root are rejected rather
-than read. The depth fix also makes `--depth N` reach exactly N levels below
-the scan root, so the default depth of 6 is one level less than 0.5.0 did.
+An ignored `build/`, `out/`, `dist/` or `target/` directory could contain a
+tracked project configuration and still be skipped by the filesystem walk. A
+single word in `.gitignore` was enough to turn committed content into a clean
+report. Onopen now reads the Git index and restores tracked project paths, while
+leaving untracked `node_modules/` and build output ignored.
+
+The index reader understands Git split indexes, including shared-index overlays,
+deletions, additions and EWAH bitmaps, as well as sparse directory entries.
+Symlinked index paths and gitdir indirections outside the scan root are rejected
+rather than read. The depth fix also makes `--depth N` reach exactly N levels
+below the scan root, so the default depth of 6 is one level less than 0.5.0 did.
 
 This release also detects npm `preprepare`/`postprepare`, Bun preload modules,
 `.npmrc` Node startup options, `gems.rb`, nox and Python startup imports, plus

@@ -157,10 +157,8 @@ impl Ctx {
 
     /// Turn an absolute path back into a display path relative to the root.
     pub fn rel(&self, p: &Path) -> String {
-        p.strip_prefix(&self.root)
-            .unwrap_or(p)
-            .to_string_lossy()
-            .replace('\\', "/")
+        let raw = p.strip_prefix(&self.root).unwrap_or(p).to_string_lossy();
+        crate::normalize_display_path(&raw).unwrap_or_else(|| raw.replace('\\', "/"))
     }
 }
 

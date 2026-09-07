@@ -330,10 +330,17 @@ fn split_index_without_shared_file_is_incomplete() {
 
     let unit = scan_repo(&dir);
     assert!(rules(&unit).contains(&"vscode/task-run-on-folder-open"));
+    let unreadable = unit
+        .unreadable
+        .iter()
+        .find(|entry| entry.file == ".git/index")
+        .expect("missing shared index must be reported");
     assert!(
-        unit.unreadable
-            .iter()
-            .any(|entry| entry.file == ".git/index")
+        unreadable
+            .reason
+            .contains("split index shared file cannot be read"),
+        "unexpected reason: {}",
+        unreadable.reason
     );
 }
 
