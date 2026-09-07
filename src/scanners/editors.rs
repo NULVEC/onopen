@@ -16,6 +16,8 @@
 
 use super::{Ctx, Scanner};
 use crate::finding::{Finding, ScanUnit, Severity};
+use crate::scanners::command_text;
+use serde_json::Value;
 
 pub struct Editors;
 
@@ -33,7 +35,49 @@ impl Scanner for Editors {
         scan_jetbrains_watchers(ctx, &mut unit);
         scan_emacs_dir_locals(ctx, &mut unit);
         scan_vim_rc(ctx, &mut unit);
+        scan_zed(ctx, &mut unit);
         unit
+    }
+}
+
+fn scan_zed(ctx: &Ctx, unit: &mut ScanUnit) {
+    for rel in [".zed/tasks.json", ".zed/debug.json"] {
+        let Some(doc) = ctx.json(rel, unit) else {
+            continue;
+        };
+        let before = unit.findings.len();
+        collect_zed_commands(&doc, rel, unit);
+        if unit.findings.len() == before {
+            unit.clear(rel);
+        }
+    }
+}
+
+fn collect_zed_commands(value: &Value, rel: &str, unit: &mut ScanUnit) {
+    match value {
+        Value::Object(map) => {
+            for key in ["command", "program", "executable"] {
+                if let Some(command) = map.get(key).and_then(command_text) {
+                    unit.push(Finding::new(
+                        "zed/task-command",
+                        rel,
+                        key,
+                        command,
+                        Severity::Deferred,
+                        "Zed runs this repository command when the task or debug configuration is selected.",
+                    ));
+                }
+            }
+            for child in map.values() {
+                collect_zed_commands(child, rel, unit);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_zed_commands(item, rel, unit);
+            }
+        }
+        _ => {}
     }
 }
 

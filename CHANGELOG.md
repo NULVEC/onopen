@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.1
+
+### Split and sparse indexes, plus the missing lifecycle surfaces
+
+The index reader now understands Git split indexes, including shared-index
+overlays, deletions, additions and Git's EWAH bitmaps, plus sparse directory entries. Symlinked
+index paths and gitdir indirections outside the scan root are rejected rather
+than read. The depth fix also makes `--depth N` reach exactly N levels below
+the scan root, so the default depth of 6 is one level less than 0.5.0 did.
+
+This release also detects npm `preprepare`/`postprepare`, Bun preload modules,
+`.npmrc` Node startup options, `gems.rb`, nox and Python startup imports, plus
+checked-in command configuration from Windsurf, Continue, Aider and Zed.
+The new `RED-TEAM-0.5.0.md` audit documents the decisions, limits and the
+libFuzzer target for the index parser.
+
 ## 0.5.0
 
 ### Two lines of git turned a repository clean

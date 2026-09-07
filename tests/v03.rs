@@ -41,6 +41,18 @@ fn every_v03_execution_surface_has_a_hostile_fixture() {
     );
     put(
         &root,
+        ".windsurf/config.json",
+        r#"{"testCommand":"./test.sh"}"#,
+    );
+    put(&root, ".continue/config.yaml", "testCommand: ./test.sh\n");
+    put(&root, ".aider.conf.yml", "lint-cmd: ./lint.sh\n");
+    put(
+        &root,
+        ".zed/tasks.json",
+        r#"{"tasks":[{"command":"./task.sh"}]}"#,
+    );
+    put(
+        &root,
         "project.code-workspace",
         r#"{"tasks":{"tasks":[{"label":"bootstrap","command":"node","args":["open.js"],"runOptions":{"runOn":"folderOpen"},"dependsOn":"prepare"},{"label":"prepare","command":"node prepare.js","windows":{"command":"pwsh prepare.ps1"}}]}}"#,
     );
@@ -71,6 +83,21 @@ fn every_v03_execution_surface_has_a_hostile_fixture() {
     );
     put(&root, "tests/conftest.py", "import subprocess\n");
     put(&root, "sitecustomize.py", "import bootstrap\n");
+    put(&root, "usercustomize.py", "import bootstrap\n");
+    put(&root, "noxfile.py", "session.run('node', 'stage.js')\n");
+    put(&root, "tools.pth", "import bootstrap\n");
+    put(&root, "bunfig.toml", "preload=['./bootstrap.ts']\n");
+    put(
+        &root,
+        ".npmrc",
+        "node-options=--require ./bootstrap.js\nscript-shell=./shell.sh\n",
+    );
+    put(&root, "gems.rb", "source 'https://rubygems.org'\n");
+    put(
+        &root,
+        "package.json",
+        r#"{"scripts":{"preprepare":"node before.js","prepare":"node prepare.js","postprepare":"node after.js"}}"#,
+    );
     put(
         &root,
         "Cargo.toml",
@@ -107,6 +134,10 @@ fn every_v03_execution_surface_has_a_hostile_fixture() {
     let got = rules(&root);
     for expected in [
         "agent/cursor-command-hook",
+        "agent/windsurf-command",
+        "agent/continue-command",
+        "agent/aider-command",
+        "zed/task-command",
         "vscode/workspace-task-run-on-folder-open",
         "pnpm/pnpmfile-hook",
         "yarn/yarn-path",
@@ -116,6 +147,13 @@ fn every_v03_execution_surface_has_a_hostile_fixture() {
         "python/local-build-backend",
         "python/pytest-conftest",
         "python/sitecustomize",
+        "python/usercustomize",
+        "python/noxfile",
+        "python/pth-import",
+        "bun/preload",
+        "npm/node-options",
+        "npm/script-shell",
+        "bundler/gemfile-executes-ruby",
         "cargo/build-script",
         "cargo/compiler-wrapper",
         "direnv/environment-script",
@@ -135,6 +173,13 @@ fn every_v03_execution_surface_has_a_hostile_fixture() {
 fn ordinary_counterparts_stay_clean() {
     let root = repo("clean");
     put(&root, ".cursor/hooks.json", r#"{"hooks":{}}"#);
+    put(&root, ".windsurf/config.json", "{}\n");
+    put(&root, ".continue/config.yaml", "name: default\n");
+    put(&root, ".aider.conf.yml", "model: default\n");
+    put(&root, ".zed/tasks.json", r#"{"tasks":[]}"#);
+    put(&root, "noxfile.py", "# sessions are defined elsewhere\n");
+    put(&root, "usercustomize.py", "# no startup customization\n");
+    put(&root, "tools.pth", "./lib\n");
     put(
         &root,
         "project.code-workspace",
@@ -167,6 +212,8 @@ fn ordinary_counterparts_stay_clean() {
         "[build]\ntarget-dir='target'\n",
     );
     put(&root, ".envrc", "# no environment script\n");
+    put(&root, "bunfig.toml", "logLevel='debug'\n");
+    put(&root, ".npmrc", "registry=https://registry.npmjs.org\n");
     put(&root, "mise.toml", "[tools]\nnode='24'\n");
     put(
         &root,

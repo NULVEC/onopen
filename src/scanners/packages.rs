@@ -12,7 +12,14 @@ use yaml_rust2::{Yaml, YamlLoader};
 pub struct Packages;
 
 /// npm lifecycle scripts that run as part of a plain `npm install`.
-const NPM_INSTALL_SCRIPTS: &[&str] = &["preinstall", "install", "postinstall", "prepare"];
+const NPM_INSTALL_SCRIPTS: &[&str] = &[
+    "preinstall",
+    "install",
+    "postinstall",
+    "preprepare",
+    "prepare",
+    "postprepare",
+];
 
 /// npm scripts that run on other common actions.
 const NPM_DEFERRED_SCRIPTS: &[&str] = &[
@@ -61,7 +68,103 @@ impl Scanner for Packages {
         scan_pnpmfile(ctx, &mut unit);
         scan_yarn(ctx, &mut unit);
         scan_pnpm_workspace(ctx, &mut unit);
+        scan_bunfig(ctx, &mut unit);
+        scan_npmrc(ctx, &mut unit);
+        scan_gems_rb(ctx, &mut unit);
         unit
+    }
+}
+
+fn scan_bunfig(ctx: &Ctx, unit: &mut ScanUnit) {
+    let rel = "bunfig.toml";
+    let Some(source) = ctx.read(rel, unit) else {
+        return;
+    };
+    let doc: toml::Value = match toml::from_str(&source) {
+        Ok(doc) => doc,
+        Err(e) => {
+            unit.mark_unreadable(rel, format!("not parseable as TOML: {e}"));
+            return;
+        }
+    };
+    let Some(preload) = doc.get("preload").and_then(toml::Value::as_array) else {
+        unit.clear(rel);
+        return;
+    };
+    let values = preload
+        .iter()
+        .filter_map(toml::Value::as_str)
+        .collect::<Vec<_>>();
+    if values.is_empty() {
+        unit.clear(rel);
+    } else {
+        unit.push(Finding::new(
+            "bun/preload",
+            rel,
+            "preload",
+            values.join(", "),
+            Severity::Immediate,
+            "Bun loads these repository modules before running commands or tests.",
+        ));
+    }
+}
+
+fn scan_npmrc(ctx: &Ctx, unit: &mut ScanUnit) {
+    let rel = ".npmrc";
+    let Some(source) = ctx.read(rel, unit) else {
+        return;
+    };
+    let before = unit.findings.len();
+    for line in source.lines().map(str::trim) {
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        let value = value.trim();
+        if value.is_empty() {
+            continue;
+        }
+        if key == "node-options" && (value.contains("--require") || value.contains("--import")) {
+            unit.push(Finding::new(
+                "npm/node-options",
+                rel,
+                key,
+                value,
+                Severity::Immediate,
+                "npm passes this Node startup option to lifecycle scripts.",
+            ));
+        } else if key == "script-shell" {
+            unit.push(Finding::new(
+                "npm/script-shell",
+                rel,
+                key,
+                value,
+                Severity::Note,
+                "npm uses this configured shell for lifecycle scripts.",
+            ));
+        }
+    }
+    if unit.findings.len() == before {
+        unit.clear(rel);
+    }
+}
+
+fn scan_gems_rb(ctx: &Ctx, unit: &mut ScanUnit) {
+    let rel = "gems.rb";
+    let Some(source) = ctx.read(rel, unit) else {
+        return;
+    };
+    if let Some(preview) = meaningful_module(&source) {
+        unit.push(Finding::new(
+            "bundler/gemfile-executes-ruby",
+            rel,
+            "Bundler configuration",
+            preview,
+            Severity::Immediate,
+            "Bundler evaluates this Ruby configuration when it starts.",
+        ));
+    } else {
+        unit.clear(rel);
     }
 }
 
