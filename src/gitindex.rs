@@ -223,6 +223,8 @@ struct LinkExtension {
     replace: Vec<u8>,
 }
 
+type ExtensionRecord<'a> = (&'a [u8], &'a [u8]);
+
 fn link_extension(bytes: &[u8], hash_len: usize) -> Result<LinkExtension, String> {
     let payload = extension_payloads(bytes)?
         .into_iter()
@@ -244,10 +246,9 @@ fn link_extension(bytes: &[u8], hash_len: usize) -> Result<LinkExtension, String
     })
 }
 
-fn extension_payloads(bytes: &[u8]) -> Result<Vec<(&[u8], &[u8])>, String> {
-    let after_entries = index_entry_end(bytes).ok_or_else(|| {
-        "index is not parseable enough to scan its extension records".to_string()
-    })?;
+fn extension_payloads(bytes: &[u8]) -> Result<Vec<ExtensionRecord<'_>>, String> {
+    let after_entries = index_entry_end(bytes)
+        .ok_or_else(|| "index is not parseable enough to scan its extension records".to_string())?;
 
     let mut pos = after_entries;
     let mut extensions = Vec::new();
@@ -293,9 +294,8 @@ fn index_entry_end_for_hash(
 ) -> Option<usize> {
     let mut pos = 12usize;
     let mut previous = Vec::new();
-    let mut previous_stage = 0u16;
 
-    for entry in 0..count {
+    for _ in 0..count {
         let start = pos;
         let flags_at = start.checked_add(40)?.checked_add(hash_len)?;
         let after_flags = flags_at.checked_add(2)?;
@@ -304,7 +304,6 @@ fn index_entry_end_for_hash(
         }
 
         let flags = u16::from_be_bytes([bytes[flags_at], bytes[flags_at + 1]]);
-        let stage = (flags >> 12) & 0x3;
         let claimed_len = flags & NAME_MASK;
         let mut p = after_flags;
         if flags & 0x4000 != 0 {
@@ -331,13 +330,10 @@ fn index_entry_end_for_hash(
             return None;
         }
         name.extend_from_slice(suffix);
-        if name.is_empty() || !usable(&name) {
+        if !name.is_empty() && !usable(&name) {
             return None;
         }
         if claimed_len != NAME_MASK && usize::from(claimed_len) != name.len() {
-            return None;
-        }
-        if entry > 0 && (name.as_slice(), stage) <= (previous.as_slice(), previous_stage) {
             return None;
         }
 
@@ -351,8 +347,9 @@ fn index_entry_end_for_hash(
             return None;
         }
 
-        previous = name;
-        previous_stage = stage;
+        if !name.is_empty() {
+            previous = name;
+        }
     }
 
     if bytes.len().checked_sub(pos)? < hash_len {
@@ -401,9 +398,9 @@ fn ewah_bits(bytes: &[u8], limit: usize) -> Result<std::collections::BTreeSet<us
         );
         pos += 8;
         consumed += 1;
-        let running = ((control >> 63) & 1) as usize;
-        let running_len = ((control >> 32) & 0x7fff_ffff) as usize;
-        let literals = (control & 0xffff_ffff) as usize;
+        let running = (control & 1) != 0;
+        let running_len = ((control >> 1) & 0xffff_ffff) as usize;
+        let literals = (control >> 33) as usize;
         if consumed
             .checked_add(literals)
             .is_none_or(|count| count > words)
@@ -413,7 +410,7 @@ fn ewah_bits(bytes: &[u8], limit: usize) -> Result<std::collections::BTreeSet<us
         let run_bits = running_len
             .checked_mul(64)
             .ok_or("EWAH run length overflow")?;
-        output.extend(std::iter::repeat_n(running != 0, run_bits));
+        output.extend(std::iter::repeat_n(running, run_bits));
         for _ in 0..literals {
             let word = u64::from_be_bytes(
                 bytes

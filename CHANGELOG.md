@@ -5,7 +5,7 @@
 ### Split and sparse indexes, plus the missing lifecycle surfaces
 
 The index reader now understands Git split indexes, including shared-index
-overlays, deletions and additions, and sparse directory entries. Symlinked
+overlays, deletions, additions and Git's EWAH bitmaps, plus sparse directory entries. Symlinked
 index paths and gitdir indirections outside the scan root are rejected rather
 than read. The depth fix also makes `--depth N` reach exactly N levels below
 the scan root, so the default depth of 6 is one level less than 0.5.0 did.

@@ -43,6 +43,12 @@ fn put(root: &Path, rel: &str, body: &str) {
 
 /// Write a version 2 index listing exactly these paths, the way git writes one.
 fn track(root: &Path, paths: &[&str]) {
+    let index = index_bytes(paths);
+    fs::create_dir_all(root.join(".git")).unwrap();
+    fs::write(root.join(".git/index"), index).unwrap();
+}
+
+fn index_bytes(paths: &[&str]) -> Vec<u8> {
     let mut sorted: Vec<&str> = paths.to_vec();
     sorted.sort_unstable();
 
@@ -66,8 +72,52 @@ fn track(root: &Path, paths: &[&str]) {
     index.extend_from_slice(&entries);
     index.extend_from_slice(&[0u8; 20]); // trailing checksum
 
-    fs::create_dir_all(root.join(".git")).unwrap();
-    fs::write(root.join(".git/index"), index).unwrap();
+    index
+}
+
+fn ewah(bit_size: usize, set_bits: &[usize]) -> Vec<u8> {
+    let mut literal = 0u64;
+    for bit in set_bits {
+        literal |= 1u64 << bit;
+    }
+    let mut bitmap = Vec::new();
+    bitmap.extend_from_slice(&u32::try_from(bit_size).unwrap().to_be_bytes());
+    if bit_size == 0 {
+        bitmap.extend_from_slice(&1u32.to_be_bytes());
+        bitmap.extend_from_slice(&0u64.to_be_bytes());
+        bitmap.extend_from_slice(&0u32.to_be_bytes());
+    } else {
+        bitmap.extend_from_slice(&2u32.to_be_bytes());
+        bitmap.extend_from_slice(&(1u64 << 33).to_be_bytes());
+        bitmap.extend_from_slice(&literal.to_be_bytes());
+        bitmap.extend_from_slice(&0u32.to_be_bytes());
+    }
+    bitmap
+}
+
+fn split_index(
+    shared: &[&str],
+    overlay: &[&str],
+    deleted: &[usize],
+    replaced: &[usize],
+) -> (Vec<u8>, Vec<u8>, String) {
+    let shared_index = index_bytes(shared);
+    let hash = [0x42u8; 20];
+    let shared_name = hash
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+
+    let mut main = index_bytes(overlay);
+    main.truncate(main.len() - 20);
+    let mut payload = hash.to_vec();
+    payload.extend_from_slice(&ewah(shared.len(), deleted));
+    payload.extend_from_slice(&ewah(shared.len(), replaced));
+    main.extend_from_slice(b"link");
+    main.extend_from_slice(&u32::try_from(payload.len()).unwrap().to_be_bytes());
+    main.extend_from_slice(&payload);
+    main.extend_from_slice(&[0u8; 20]);
+    (main, shared_index, shared_name)
 }
 
 fn scan_repo(dir: &Path) -> ScanUnit {
@@ -179,6 +229,106 @@ fn file_names_containing_link_do_not_trigger_split_index_parsing() {
         rules(&unit)
     );
     assert_eq!(unit.findings[0].file, "linker/.vscode/tasks.json");
+}
+
+#[test]
+fn real_split_index_with_zero_main_entries_reads_shared_files() {
+    let dir = repo("split-zero-main");
+    put(&dir, "packages/api/.vscode/tasks.json", FOLDER_OPEN_TASK);
+    put(&dir, ".gitignore", "packages/\n");
+    let (mut main, shared, shared_name) = split_index(
+        &[".gitignore", "packages/api/.vscode/tasks.json"],
+        &[],
+        &[],
+        &[],
+    );
+    main.truncate(12);
+    main[8..12].copy_from_slice(&0u32.to_be_bytes());
+    let mut payload = [0x42u8; 20].to_vec();
+    payload.extend_from_slice(&ewah(2, &[]));
+    payload.extend_from_slice(&ewah(2, &[]));
+    main.extend_from_slice(b"link");
+    main.extend_from_slice(&u32::try_from(payload.len()).unwrap().to_be_bytes());
+    main.extend_from_slice(&payload);
+    main.extend_from_slice(&[0u8; 20]);
+    fs::create_dir_all(dir.join(".git")).unwrap();
+    fs::write(dir.join(".git/index"), main).unwrap();
+    fs::write(dir.join(format!(".git/sharedindex.{shared_name}")), shared).unwrap();
+
+    let unit = scan_repo(&dir);
+    assert!(rules(&unit).contains(&"vscode/task-run-on-folder-open"));
+    assert!(unit.unreadable.is_empty(), "{:#?}", unit.unreadable);
+}
+
+#[test]
+fn real_split_index_keeps_empty_replacement_names() {
+    let dir = repo("split-empty-replacement");
+    put(&dir, "packages/api/.vscode/tasks.json", FOLDER_OPEN_TASK);
+    put(&dir, ".gitignore", "packages/\n");
+    let (main, shared, shared_name) = split_index(
+        &[".gitignore", "packages/api/.vscode/tasks.json"],
+        &[""],
+        &[],
+        &[1],
+    );
+    fs::create_dir_all(dir.join(".git")).unwrap();
+    fs::write(dir.join(".git/index"), main).unwrap();
+    fs::write(dir.join(format!(".git/sharedindex.{shared_name}")), shared).unwrap();
+
+    let unit = scan_repo(&dir);
+    assert!(rules(&unit).contains(&"vscode/task-run-on-folder-open"));
+    assert!(unit.unreadable.is_empty(), "{:#?}", unit.unreadable);
+}
+
+#[test]
+fn real_split_index_applies_addition_and_deletion_bitmaps() {
+    let dir = repo("split-add-delete");
+    put(&dir, "packages/api/.vscode/tasks.json", FOLDER_OPEN_TASK);
+    put(&dir, "removed/.vscode/tasks.json", FOLDER_OPEN_TASK);
+    put(&dir, ".gitignore", "packages/\nremoved/\n");
+    let (main, shared, shared_name) = split_index(
+        &[".gitignore", "removed/.vscode/tasks.json"],
+        &["packages/api/.vscode/tasks.json"],
+        &[1],
+        &[],
+    );
+    fs::create_dir_all(dir.join(".git")).unwrap();
+    fs::write(dir.join(".git/index"), main).unwrap();
+    fs::write(dir.join(format!(".git/sharedindex.{shared_name}")), shared).unwrap();
+
+    let unit = scan_repo(&dir);
+    assert_eq!(
+        unit.findings
+            .iter()
+            .filter(|f| f.rule == "vscode/task-run-on-folder-open")
+            .count(),
+        1
+    );
+    assert_eq!(unit.findings[0].file, "packages/api/.vscode/tasks.json");
+    assert!(unit.unreadable.is_empty(), "{:#?}", unit.unreadable);
+}
+
+#[test]
+fn split_index_without_shared_file_is_incomplete() {
+    let dir = repo("split-missing-shared");
+    put(&dir, "packages/api/.vscode/tasks.json", FOLDER_OPEN_TASK);
+    put(&dir, ".gitignore", "packages/\n");
+    let (main, _shared, _shared_name) = split_index(
+        &[".gitignore", "packages/api/.vscode/tasks.json"],
+        &[],
+        &[],
+        &[],
+    );
+    fs::create_dir_all(dir.join(".git")).unwrap();
+    fs::write(dir.join(".git/index"), main).unwrap();
+
+    let unit = scan_repo(&dir);
+    assert!(rules(&unit).contains(&"vscode/task-run-on-folder-open"));
+    assert!(
+        unit.unreadable
+            .iter()
+            .any(|entry| entry.file == ".git/index")
+    );
 }
 
 #[test]

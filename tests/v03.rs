@@ -173,6 +173,13 @@ fn every_v03_execution_surface_has_a_hostile_fixture() {
 fn ordinary_counterparts_stay_clean() {
     let root = repo("clean");
     put(&root, ".cursor/hooks.json", r#"{"hooks":{}}"#);
+    put(&root, ".windsurf/config.json", "{}\n");
+    put(&root, ".continue/config.yaml", "name: default\n");
+    put(&root, ".aider.conf.yml", "model: default\n");
+    put(&root, ".zed/tasks.json", r#"{"tasks":[]}"#);
+    put(&root, "noxfile.py", "# sessions are defined elsewhere\n");
+    put(&root, "usercustomize.py", "# no startup customization\n");
+    put(&root, "tools.pth", "./lib\n");
     put(
         &root,
         "project.code-workspace",
