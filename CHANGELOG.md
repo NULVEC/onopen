@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.2
+
+### The GitHub Action is on the Marketplace as Onopen Repository Scan
+
+GitHub rejected the name "Onopen" for a Marketplace listing, so the action is
+now named Onopen Repository Scan. Only the display name changed: workflows that
+use `NULVEC/onopen@v0` or a pinned tag keep working, and nothing about what the
+scanner reports is different from 0.5.1.
+
 ## 0.5.1
 
 ### A tracked build directory could make onopen report clean
