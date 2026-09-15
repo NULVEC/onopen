@@ -1,4 +1,4 @@
-name: "Onopen"
+name: "Onopen Repository Scan"
 description: "See what runs when you open a repository: editor tasks, agent hooks, MCP servers, install scripts and git hooks."
 author: "Veltron"
 
