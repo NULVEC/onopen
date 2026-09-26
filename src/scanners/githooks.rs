@@ -67,7 +67,7 @@ fn scan_active_hooks(ctx: &Ctx, unit: &mut ScanUnit) {
         .into_iter()
         .filter_map(Result::ok)
     {
-        if !entry.file_type().is_file() {
+        if !super::is_file_entry(entry.path(), entry.file_type()) {
             continue;
         }
         let name = entry.file_name().to_string_lossy().to_string();
@@ -76,7 +76,7 @@ fn scan_active_hooks(ctx: &Ctx, unit: &mut ScanUnit) {
         }
         let rel = ctx.rel(entry.path());
         let preview = ctx
-            .read(&rel, unit)
+            .read_at(entry.path(), &rel, unit)
             .and_then(|text| first_meaningful_line(&text))
             .unwrap_or_else(|| "(unreadable)".into());
         unit.push(Finding::new(
@@ -104,7 +104,7 @@ fn scan_checked_in(ctx: &Ctx, unit: &mut ScanUnit) {
             .into_iter()
             .filter_map(Result::ok)
         {
-            if !entry.file_type().is_file() {
+            if !super::is_file_entry(entry.path(), entry.file_type()) {
                 continue;
             }
             let name = entry.file_name().to_string_lossy().to_string();
@@ -114,7 +114,7 @@ fn scan_checked_in(ctx: &Ctx, unit: &mut ScanUnit) {
             found_any = true;
             let rel = ctx.rel(entry.path());
             let preview = ctx
-                .read(&rel, unit)
+                .read_at(entry.path(), &rel, unit)
                 .and_then(|text| first_meaningful_line(&text))
                 .unwrap_or_else(|| "(unreadable)".into());
             unit.push(Finding::new(
