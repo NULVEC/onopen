@@ -1,6 +1,7 @@
 //! Output rendering: a human view built for skimming, and JSON for machines.
 
 use crate::finding::{Finding, ScanUnit, Severity, Unreadable};
+use crate::visible::visible;
 use serde::Serialize;
 use std::io::IsTerminal;
 
@@ -113,7 +114,7 @@ pub fn render_human(report: &Report, opts: &HumanOptions) -> String {
         c(BOLD),
         c(RESET),
         c(DIM),
-        report.root,
+        visible(&report.root),
         c(RESET)
     ));
 
@@ -140,18 +141,18 @@ pub fn render_human(report: &Report, opts: &HumanOptions) -> String {
     let file_w = report
         .findings
         .iter()
-        .map(|f| f.file.chars().count())
+        .map(|f| visible(&f.file).chars().count())
         .chain(
             report
                 .unreadable
                 .iter()
-                .map(|entry| entry.file.chars().count()),
+                .map(|entry| visible(&entry.file).chars().count()),
         )
         .chain(
             opts.cleared
                 .iter()
                 .filter(|_| !opts.quiet)
-                .map(|p| p.chars().count()),
+                .map(|p| visible(p).chars().count()),
         )
         .max()
         .unwrap_or(0)
@@ -159,7 +160,7 @@ pub fn render_human(report: &Report, opts: &HumanOptions) -> String {
     let trig_w = report
         .findings
         .iter()
-        .map(|f| f.trigger.chars().count())
+        .map(|f| visible(&f.trigger).chars().count())
         .max()
         .unwrap_or(0)
         .clamp(0, 34);
@@ -170,10 +171,10 @@ pub fn render_human(report: &Report, opts: &HumanOptions) -> String {
             c(f.severity.ansi()),
             f.severity.marker(),
             c(RESET),
-            fit(&f.file, file_w),
-            fit(&f.trigger, trig_w),
+            fit(&visible(&f.file), file_w),
+            fit(&visible(&f.trigger), trig_w),
             c(DIM),
-            f.command,
+            visible(&f.command),
             c(RESET),
             fw = file_w,
             tw = trig_w,
@@ -194,9 +195,9 @@ pub fn render_human(report: &Report, opts: &HumanOptions) -> String {
             "{}?{} {:<fw$}  {}{}{}\n",
             c(UNREAD),
             c(RESET),
-            fit(&entry.file, file_w),
+            fit(&visible(&entry.file), file_w),
             c(UNREAD),
-            entry.reason,
+            visible(&entry.reason),
             c(RESET),
             fw = file_w
         ));
@@ -207,7 +208,7 @@ pub fn render_human(report: &Report, opts: &HumanOptions) -> String {
             out.push_str(&format!(
                 "{}  {:<fw$}  clean{}\n",
                 c(DIM),
-                fit(path, file_w),
+                fit(&visible(path), file_w),
                 c(RESET),
                 fw = file_w
             ));
@@ -298,9 +299,9 @@ fn suppressed_list(report: &Report, c: &impl Fn(&'static str) -> &'static str) -
         out.push_str(&format!(
             "  {}- {}  {}  {}{}\n",
             c(DIM),
-            f.file,
-            f.trigger,
-            f.command,
+            visible(&f.file),
+            visible(&f.trigger),
+            visible(&f.command),
             c(RESET)
         ));
     }

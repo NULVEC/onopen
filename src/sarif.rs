@@ -12,6 +12,7 @@
 
 use crate::finding::{Finding, Severity, Unreadable};
 use crate::report::Report;
+use crate::visible::visible;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -79,7 +80,7 @@ fn unreadable_result(entry: &Unreadable) -> Value {
     json!({
         "ruleId": UNREADABLE_RULE,
         "level": "error",
-        "message": { "text": format!("not read: {}", entry.reason) },
+        "message": { "text": format!("not read: {}", visible(&entry.reason)) },
         "locations": [{
             "physicalLocation": {
                 "artifactLocation": { "uri": entry.file },
@@ -88,12 +89,16 @@ fn unreadable_result(entry: &Unreadable) -> Value {
     })
 }
 
+/// `message.text` is what code scanning shows a reviewer, so repository text in
+/// it is escaped the way the terminal report escapes it; a right-to-left
+/// override in a command must not reorder what the reviewer reads. The
+/// `uri` stays exact, because it has to match the file it points at.
 fn result(finding: &Finding, suppressed: bool) -> Value {
     let mut value = json!({
         "ruleId": finding.rule,
         "level": level(finding.severity),
         "message": {
-            "text": format!("{} — {}", finding.trigger, finding.command),
+            "text": format!("{} — {}", visible(&finding.trigger), visible(&finding.command)),
         },
         "locations": [{
             "physicalLocation": {

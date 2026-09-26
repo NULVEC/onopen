@@ -91,7 +91,9 @@ fn main() -> ExitCode {
             }
         }
         Err(e) => {
-            eprintln!("onopen: {e:#}");
+            // Error text can quote paths and ignore-file lines from the
+            // repository; it reaches the same terminal the report does.
+            eprintln!("onopen: {}", onopen::visible::visible(&format!("{e:#}")));
             ExitCode::from(2)
         }
     }
