@@ -45,8 +45,18 @@ cargo install onopen --locked
 ```
 
 Release archives for Linux, macOS and Windows are also attached to each
-[GitHub release](https://github.com/NULVEC/onopen/releases). To build from a
-checkout:
+[GitHub release](https://github.com/NULVEC/onopen/releases), together with
+`SHA256SUMS`, a CycloneDX SBOM, and Sigstore attestations of how each archive
+was built and what it contains. Check one before running it:
+
+```sh
+gh attestation verify onopen-<version>-<target>.tar.gz --repo NULVEC/onopen \
+  --signer-workflow NULVEC/onopen/.github/workflows/release.yml
+```
+
+Release binaries are built with `--locked`, the commit's timestamp and
+machine-independent paths, so that rebuilding a tag gives the same binary.
+To build from a checkout:
 
 ```sh
 git clone https://github.com/NULVEC/onopen
@@ -192,8 +202,9 @@ On a repository that already has findings, start with
 `fail-on-findings: false`: the report still reaches the Security tab, the
 build stays green, and you decide what to silence before turning the gate on.
 
-The action verifies the digest of the binary it downloads before running it.
-A tool whose argument is that you should know what you are about to run has no
+The action verifies the binary it downloads before running it: the digest
+against `SHA256SUMS`, and the Sigstore attestation that it was built by this
+repository's release workflow from the tag you asked for. A tool whose argument is that you should know what you are about to run has no
 business skipping that step itself.
 
 ## Known limits
