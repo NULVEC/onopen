@@ -1,5 +1,106 @@
 # Changelog
 
+## 1.0.0
+
+1.0 is a promise about the outside of the tool rather than a new scanner: the
+exit codes, `--json` and `--sarif` are now a contract for all of 1.x, written
+down in `docs/CONTRACT.md` and pinned by tests. Before making it, the tool was
+attacked again, this time from the direction 0.3.0 and 0.5.0 did not look: at
+the person reading the report, at the filesystem, at the parsers' appetite and
+at the release itself. `docs/RED-TEAM-1.0.0.md` records every attack, what it
+did before and what it does now.
+
+### A task command could write to your clipboard
+
+Every path, trigger and command in the report was written by the author of the
+repository being inspected, and the report printed them as they came. A task
+command containing OSC 52 wrote the reader's clipboard the moment the finding
+was shown; an erase-line sequence could paint over the finding itself; a
+right-to-left override could reorder the command the reader thought they were
+approving, the "Trojan Source" trick applied to a security report.
+
+Repository text in the terminal view, in error messages and in SARIF messages
+now comes out escaped and visible: control characters, escape sequences,
+bidirectional controls, zero-width and tag characters appear as `\x1b`,
+`\u{202e}` and so on. JSON keeps the exact data, because a consumer matching a
+command needs the real bytes; showing it to a person is that consumer's job.
+
+### A linked `.vscode` directory was read from outside the repository
+
+The symlink check looked only at the last component of a path. A `.vscode`
+that was itself a symlink, or on Windows a junction any user can create, led
+out of the repository while `tasks.json` beneath it was an ordinary file, so
+the file outside was read and reported as the repository's. The ignore file had
+it worse: it was read without any check, so a FIFO hung the scan and a link to
+`/dev/zero` never finished.
+
+Every configuration read now resolves the full path, refuses anything outside
+the scanned root, reads regular files only and stops at 8 MiB while reading.
+A default `.onopenignore` that leads out of the repository is an error (exit
+`2`), never silently skipped. The other direction was wrong too: hook scripts,
+`conftest.py` and `.pth` files that were symlinks inside the repository were
+skipped by the walkers, and are now reported.
+
+### A few hundred bytes of YAML could exhaust memory
+
+YAML anchors copied on every alias turn a few hundred bytes into billions of
+nodes, and the scan ran out of memory before reporting anything. YAML is now
+counted event by event first, each alias weighing what it expands to, and a
+document past 100,000 nodes is refused and reported unreadable.
+
+### A thousand nested XML elements crashed the scan
+
+On the 1 MiB stack Windows gives a program's main thread, a thousand nested
+elements overflowed the XML parser's recursion: an abort with no report and no
+exit code `2`, which to a pipeline looks like a tool failure rather than a
+hostile file. Depth is now measured by a cheap pass first and anything past 256
+levels is refused and reported unreadable. JSON and TOML already had limits,
+now covered by tests.
+
+Related: a parser error that quotes the offending line could carry a 200 KB
+line into the report, and a 7 MiB task label was printed whole. Reasons are cut
+to 400 characters keeping both ends, and triggers to 120 like commands. A new
+fuzz target covers the JSONC, YAML, XML and ignore-file parsers.
+
+### "No network" was a sentence in the README
+
+Onopen has never opened a connection, but nothing would have noticed a
+dependency that brought an HTTP or TLS stack with it. `deny.toml` now bans the
+HTTP, WebSocket, TLS, DNS, socket, async-runtime and telemetry crates by name,
+so CI fails the moment one appears, directly or transitively. A new Privacy
+section in the README says exactly what onopen reads and writes, and a test
+holds the binary to it: a scan in every output mode leaves the scanned tree and
+the working directory unchanged, down to modification times.
+
+### The checksum sat next to the file it checked
+
+The Action verified each download against `SHA256SUMS`, but both came from the
+same release: whoever could replace one could replace the other. It now also
+runs `gh attestation verify`, requiring the Sigstore attestation to name this
+repository's release workflow and the exact tag being installed.
+
+Releases also ship a CycloneDX SBOM, attested against each archive, and are
+built reproducibly: `--locked`, the commit's timestamp as `SOURCE_DATE_EPOCH`,
+local paths remapped out of the binary, normalised archive metadata. An OpenSSF
+Scorecard workflow publishes how the repository itself is run, and every
+workflow token is down to the permissions it uses.
+
+### What a script can rely on, written down
+
+`docs/CONTRACT.md` states the 1.x contract and what counts as breaking it.
+`--json` gains a `schema_version` field (`1`) and a published JSON Schema in
+`docs/schema/report-v1.json`, which the test suite checks real output against
+so the schema cannot fall behind the tool.
+
+The SARIF `artifactLocation.uri` is now percent-encoded. Written raw, a `#`,
+`?` or `:` in a file name changed what the URI meant, and a right-to-left
+override in a directory name reordered the path shown to a reviewer. Decoding
+it gives back the exact name.
+
+`--no-fail` claimed to always exit `0`; it never did for an incomplete scan,
+and the help now says so. The GitHub Action is pinned as `NULVEC/onopen@v1`
+from this release on.
+
 ## 0.5.2
 
 ### The GitHub Action is on the Marketplace as Onopen Repository Scan

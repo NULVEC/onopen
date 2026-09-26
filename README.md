@@ -201,7 +201,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: NULVEC/onopen@v0
+      - uses: NULVEC/onopen@v1
 ```
 
 On a repository that already has findings, start with

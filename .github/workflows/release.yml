@@ -164,9 +164,9 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
 
-  # `uses: NULVEC/onopen@v0` is how an action is normally pinned, and it only
+  # `uses: NULVEC/onopen@v1` is how an action is normally pinned, and it only
   # works if a major tag follows the latest release in that series. Moving it
-  # is deliberate: someone who pinned @v0 asked for the newest v0.x.
+  # is deliberate: someone who pinned @v1 asked for the newest v1.x.
   major-tag:
     needs: [publish, publish-crate]
     runs-on: ubuntu-latest
