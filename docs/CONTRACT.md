@@ -73,10 +73,13 @@ SARIF 2.1.0, validated in the test suite against the unedited OASIS schema
   text in it is escaped the way the terminal view escapes it (`\x1b`,
   `\u{202e}`). No escape sequence or bidi override reaches a reviewer raw.
 - `artifactLocation.uri` is the path relative to the scanned root, with `/`
-  separators, **percent-encoded**: every byte outside the RFC 3986 unreserved
-  set (`A-Z a-z 0-9 - . _ ~`), other than `/`, is written as `%XX`. Decoding it
-  gives back the exact name on disk. Until 1.0.0 it was written raw, which
-  let a `#`, `?` or `:` in a file name change what the URI meant.
+  separators, **percent-encoded**: every byte that RFC 3986 does not allow raw
+  in a path is written as `%XX`. Kept as they are: `A-Z a-z 0-9 - . _ ~`,
+  `! $ & ' ( ) * + , ; =`, `@` and `/`; `:` is always encoded. Decoding it
+  gives back the exact name on disk, and a path made only of the kept
+  characters is byte for byte what 0.5.x wrote, so existing code scanning
+  alerts keep their file. Until 1.0.0 it was written raw, which let a `#`,
+  `?`, `:`, space or non-ASCII name produce an invalid or misleading URI.
 
 ## Terminal output
 

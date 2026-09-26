@@ -78,17 +78,26 @@ fn rules(report: &Report) -> Vec<Value> {
 
 /// A relative path as the URI reference SARIF requires.
 ///
-/// Every byte outside RFC 3986's unreserved set, other than the `/` separator,
-/// is percent-encoded. Written raw, a file named `a#b` or `x?y` points a strict
-/// consumer at a fragment or a query, a first segment with a colon in it reads
-/// as a scheme, and a right-to-left override in a directory name reorders the
-/// path a reviewer sees next to the finding. Encoded, the path is still exact:
-/// decoding it gives back the bytes of the name, which is what a consumer
-/// matching it against the checkout does.
+/// Every byte that may not appear raw in an RFC 3986 path is percent-encoded;
+/// the `/` separator, unreserved characters and the sub-delimiters and `@`
+/// that a path segment allows are kept. Written raw, a file named `a#b` or
+/// `x?y` points a strict consumer at a fragment or a query, a first segment
+/// with a colon in it reads as a scheme (so `:` is always encoded), and a
+/// right-to-left override in a directory name reorders the path a reviewer
+/// sees next to the finding. Keeping every character a path may hold raw means
+/// the paths of 0.5.x (`node_modules/@scope/x`, `c++/a(1).json`) come out
+/// byte for byte the same, so code scanning keeps matching earlier alerts.
+/// Encoded, the path is still exact: decoding it gives back the bytes of the
+/// name, which is what a consumer matching it against the checkout does.
 fn uri(path: &str) -> String {
     let mut out = String::with_capacity(path.len());
     for byte in path.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~' | b'/') {
+        let unreserved = byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~');
+        let sub_delim = matches!(
+            byte,
+            b'!' | b'$' | b'&' | b'\'' | b'(' | b')' | b'*' | b'+' | b',' | b';' | b'='
+        );
+        if unreserved || sub_delim || matches!(byte, b'@' | b'/') {
             out.push(byte as char);
         } else {
             out.push_str(&format!("%{byte:02X}"));
@@ -257,6 +266,19 @@ mod tests {
         assert_eq!(uri("my dir/a#b?c.json"), "my%20dir/a%23b%3Fc.json");
         assert_eq!(uri("c:x/100%.json"), "c%3Ax/100%25.json");
         assert_eq!(uri("pkg\u{202e}x/t.json"), "pkg%E2%80%AEx/t.json");
+        assert_eq!(uri("a[1]\\b.json"), "a%5B1%5D%5Cb.json");
+    }
+
+    #[test]
+    fn uris_of_plain_ascii_paths_are_unchanged_from_0_5() {
+        for path in [
+            ".vscode/tasks.json",
+            "node_modules/@scope/pkg/package.json",
+            "c++/a(1).json",
+            "we!rd$&'*+,;=/x_y-z~.toml",
+        ] {
+            assert_eq!(uri(path), path);
+        }
     }
 
     #[test]

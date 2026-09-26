@@ -95,7 +95,10 @@ so the schema cannot fall behind the tool.
 The SARIF `artifactLocation.uri` is now percent-encoded. Written raw, a `#`,
 `?` or `:` in a file name changed what the URI meant, and a right-to-left
 override in a directory name reordered the path shown to a reviewer. Decoding
-it gives back the exact name.
+it gives back the exact name. Only what RFC 3986 forbids raw in a path is
+encoded, so a plain path such as `.vscode/tasks.json` or
+`node_modules/@scope/x/package.json` is written exactly as 0.5.x wrote it and
+existing code scanning alerts stay on their files.
 
 `--no-fail` claimed to always exit `0`; it never did for an incomplete scan,
 and the help now says so. The GitHub Action is pinned as `NULVEC/onopen@v1`
