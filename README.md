@@ -127,6 +127,12 @@ execution path · `2` the scan is incomplete or failed. `--no-fail` turns
 findings into `0`; it deliberately does not hide an unreadable configuration
 file or another scan failure.
 
+**Stable output.** Exit codes, `--json` (with a published
+[schema](docs/schema/report-v1.json) and a `schema_version`) and `--sarif` are
+a contract for all of 1.x; [docs/CONTRACT.md](docs/CONTRACT.md) says exactly
+what may and may not change. The terminal view is for people and may change in
+any release.
+
 ## What it reads
 
 | Scanner | Files | Looking for |

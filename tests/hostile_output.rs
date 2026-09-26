@@ -7,8 +7,8 @@
 //! clipboard, and no bidirectional override reorders a command.
 //!
 //! JSON is data and keeps the exact bytes (serde escapes the control
-//! characters); SARIF escapes the message a reviewer reads and keeps the `uri`
-//! that has to match the file.
+//! characters); SARIF escapes the message a reviewer reads and percent-encodes
+//! the `uri`, which still decodes to the exact path of the file.
 
 use serde_json::Value;
 use std::fs;
@@ -183,7 +183,7 @@ fn json_keeps_the_exact_command_with_controls_escaped_by_serde() {
 }
 
 #[test]
-fn sarif_escapes_the_message_and_keeps_the_uri() {
+fn sarif_escapes_the_message_and_encodes_the_uri() {
     let dir = repo("sarif");
     let project = dir.join("pkg\u{202e}x");
     write_task(&project, HOSTILE_COMMAND);
@@ -199,5 +199,7 @@ fn sarif_escapes_the_message_and_keeps_the_uri() {
     let uri = result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
         .as_str()
         .unwrap();
-    assert_eq!(uri, "pkg\u{202e}x/.vscode/tasks.json");
+    // The override arrives as bytes a reviewer can see, not as a reordering,
+    // and decoding gives back the name on disk.
+    assert_eq!(uri, "pkg%E2%80%AEx/.vscode/tasks.json");
 }

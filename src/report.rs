@@ -11,8 +11,16 @@ const BOLD: &str = "\x1b[1m";
 /// Unreadable rows get their own colour: they are neither a finding nor clean.
 const UNREAD: &str = "\x1b[35m";
 
+/// Version of the `--json` document's shape, independent of the tool version.
+///
+/// It changes only when a change would break a consumer written against the
+/// previous shape — a field removed, renamed or retyped. New fields do not
+/// bump it. `docs/CONTRACT.md` has the full rule and `docs/schema/` the schema.
+pub const JSON_SCHEMA_VERSION: u32 = 1;
+
 #[derive(Serialize)]
 pub struct Report {
+    pub schema_version: u32,
     pub tool: &'static str,
     pub version: &'static str,
     pub root: String,
@@ -67,6 +75,7 @@ impl Report {
         }
 
         Self {
+            schema_version: JSON_SCHEMA_VERSION,
             tool: "onopen",
             version: env!("CARGO_PKG_VERSION"),
             root,
