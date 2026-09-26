@@ -8,7 +8,7 @@
 use super::{Ctx, Scanner};
 use crate::finding::{Finding, ScanUnit, Severity};
 use walkdir::WalkDir;
-use yaml_rust2::{Yaml, YamlLoader};
+use yaml_rust2::Yaml;
 
 pub struct GitHooks;
 
@@ -151,7 +151,7 @@ fn scan_pre_commit(ctx: &Ctx, unit: &mut ScanUnit) {
     let Some(source) = ctx.read(rel, unit) else {
         return;
     };
-    let doc = match YamlLoader::load_from_str(&source) {
+    let doc = match crate::safeparse::yaml(&source) {
         Ok(mut docs) if !docs.is_empty() => docs.remove(0),
         Ok(_) => {
             unit.clear(rel);
