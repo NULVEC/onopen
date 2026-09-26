@@ -38,7 +38,7 @@ struct Cli {
     #[arg(short, long)]
     quiet: bool,
 
-    /// Always exit 0, even when execution paths are found
+    /// Exit 0 even when execution paths are found (an incomplete scan still exits 2)
     #[arg(long)]
     no_fail: bool,
 
@@ -54,7 +54,7 @@ struct Cli {
     #[arg(long, value_name = "N", default_value_t = onopen::DEFAULT_MAX_DEPTH)]
     depth: usize,
 
-    /// Read silenced findings from here instead of ./.onopenignore
+    /// Read silenced findings from here instead of PATH/.onopenignore
     #[arg(long, value_name = "FILE")]
     ignore_file: Option<PathBuf>,
 
@@ -91,7 +91,9 @@ fn main() -> ExitCode {
             }
         }
         Err(e) => {
-            eprintln!("onopen: {e:#}");
+            // Error text can quote paths and ignore-file lines from the
+            // repository; it reaches the same terminal the report does.
+            eprintln!("onopen: {}", onopen::visible::visible(&format!("{e:#}")));
             ExitCode::from(2)
         }
     }

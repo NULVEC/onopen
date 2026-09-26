@@ -72,7 +72,10 @@ impl Finding {
         Self {
             rule,
             file: file.into(),
-            trigger: trigger.into(),
+            // Both are written by the repository author. A task label is as
+            // free to be seven megabytes long as a command is, and the report
+            // has no more room for one than for the other.
+            trigger: truncate(&trigger.into(), 120),
             command: truncate(&command.into(), 120),
             severity,
             note,
@@ -127,7 +130,7 @@ impl ScanUnit {
     pub fn mark_unreadable(&mut self, file: impl Into<String>, reason: impl Into<String>) {
         self.unreadable.push(Unreadable {
             file: file.into(),
-            reason: reason.into(),
+            reason: bounded_reason(reason.into()),
         });
     }
 
@@ -161,6 +164,25 @@ impl ScanUnit {
 }
 
 /// Collapse whitespace and cut long commands so one finding stays one line.
+/// Longest reason an unreadable file is reported with.
+const MAX_REASON_CHARS: usize = 400;
+
+/// Keep a parser's error readable when it quotes the line it failed on.
+///
+/// `toml` shows the offending line in its message, and a hostile file can make
+/// that line the whole file: 200 KB of `[` landed in the report, the JSON and
+/// the SARIF as one "reason". The start says where, the end says what went
+/// wrong, so both are kept and the middle goes.
+fn bounded_reason(reason: String) -> String {
+    if reason.chars().count() <= MAX_REASON_CHARS {
+        return reason;
+    }
+    let chars: Vec<char> = reason.chars().collect();
+    let head: String = chars[..240].iter().collect();
+    let tail: String = chars[chars.len() - 150..].iter().collect();
+    format!("{head} … {tail}")
+}
+
 pub fn truncate(s: &str, max: usize) -> String {
     let flat = s.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() <= max {

@@ -8,7 +8,7 @@
 use super::{Ctx, Scanner};
 use crate::finding::{Finding, ScanUnit, Severity};
 use walkdir::WalkDir;
-use yaml_rust2::{Yaml, YamlLoader};
+use yaml_rust2::Yaml;
 
 pub struct GitHooks;
 
@@ -67,7 +67,7 @@ fn scan_active_hooks(ctx: &Ctx, unit: &mut ScanUnit) {
         .into_iter()
         .filter_map(Result::ok)
     {
-        if !entry.file_type().is_file() {
+        if !super::is_file_entry(entry.path(), entry.file_type()) {
             continue;
         }
         let name = entry.file_name().to_string_lossy().to_string();
@@ -76,7 +76,7 @@ fn scan_active_hooks(ctx: &Ctx, unit: &mut ScanUnit) {
         }
         let rel = ctx.rel(entry.path());
         let preview = ctx
-            .read(&rel, unit)
+            .read_at(entry.path(), &rel, unit)
             .and_then(|text| first_meaningful_line(&text))
             .unwrap_or_else(|| "(unreadable)".into());
         unit.push(Finding::new(
@@ -104,7 +104,7 @@ fn scan_checked_in(ctx: &Ctx, unit: &mut ScanUnit) {
             .into_iter()
             .filter_map(Result::ok)
         {
-            if !entry.file_type().is_file() {
+            if !super::is_file_entry(entry.path(), entry.file_type()) {
                 continue;
             }
             let name = entry.file_name().to_string_lossy().to_string();
@@ -114,7 +114,7 @@ fn scan_checked_in(ctx: &Ctx, unit: &mut ScanUnit) {
             found_any = true;
             let rel = ctx.rel(entry.path());
             let preview = ctx
-                .read(&rel, unit)
+                .read_at(entry.path(), &rel, unit)
                 .and_then(|text| first_meaningful_line(&text))
                 .unwrap_or_else(|| "(unreadable)".into());
             unit.push(Finding::new(
@@ -151,7 +151,7 @@ fn scan_pre_commit(ctx: &Ctx, unit: &mut ScanUnit) {
     let Some(source) = ctx.read(rel, unit) else {
         return;
     };
-    let doc = match YamlLoader::load_from_str(&source) {
+    let doc = match crate::safeparse::yaml(&source) {
         Ok(mut docs) if !docs.is_empty() => docs.remove(0),
         Ok(_) => {
             unit.clear(rel);

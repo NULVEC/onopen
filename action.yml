@@ -12,7 +12,7 @@ inputs:
     required: false
     default: "."
   version:
-    description: "Release of onopen to run. A tag like v0.3.0, or `latest`."
+    description: "Release of onopen to run. A tag like v1.0.0, or `latest`."
     required: false
     default: "latest"
   depth:
@@ -93,6 +93,16 @@ runs:
         else
           grep " ${stem}.${archive}\$" SHA256SUMS | shasum -a 256 --check -
         fi
+
+        # A digest only proves the archive matches the SHA256SUMS sitting next
+        # to it; whoever could replace one could replace both. The Sigstore
+        # attestation proves more: that this exact archive was built by this
+        # repository's release workflow, from the tag being installed. Every
+        # release since 0.2.0 carries one.
+        gh attestation verify "${stem}.${archive}" \
+          --repo "${REPO}" \
+          --signer-workflow "${REPO}/.github/workflows/release.yml" \
+          --source-ref "refs/tags/${tag}"
 
         if [ "${archive}" = "zip" ]; then
           unzip -q "${stem}.zip"

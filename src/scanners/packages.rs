@@ -7,7 +7,7 @@
 use super::{Ctx, Scanner, command_text};
 use crate::finding::{Finding, ScanUnit, Severity};
 use serde_json::Value;
-use yaml_rust2::{Yaml, YamlLoader};
+use yaml_rust2::Yaml;
 
 pub struct Packages;
 
@@ -200,7 +200,7 @@ fn scan_pnpmfile(ctx: &Ctx, unit: &mut ScanUnit) {
 
 fn yaml(ctx: &Ctx, unit: &mut ScanUnit, rel: &str) -> Option<Yaml> {
     let source = ctx.read(rel, unit)?;
-    match YamlLoader::load_from_str(&source) {
+    match crate::safeparse::yaml(&source) {
         Ok(mut docs) if !docs.is_empty() => Some(docs.remove(0)),
         Ok(_) => {
             unit.clear(rel);

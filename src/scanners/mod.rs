@@ -30,7 +30,7 @@ pub const MAX_CONFIG_BYTES: u64 = 8 * 1024 * 1024;
 /// The three cases are kept apart on purpose. Collapsing "not there" and
 /// "there but unreadable" into a single `None` is what let a byte order mark
 /// turn a repository with a `folderOpen` task into a clean report.
-enum Source {
+pub(crate) enum Source {
     Text(String),
     Absent,
     Unreadable(String),
@@ -48,9 +48,9 @@ pub struct Ctx {
 impl Ctx {
     /// A scan whose root is also the top of the scan.
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        let root = root.into();
+        let root: PathBuf = root.into();
         Self {
-            scan_root: root.clone(),
+            scan_root: root.canonicalize().unwrap_or_else(|_| root.clone()),
             root,
         }
     }
@@ -68,8 +68,14 @@ impl Ctx {
         self.root.join(rel)
     }
 
+    /// Whether anything is at `rel`, without following it anywhere.
+    ///
+    /// `Path::exists` resolves links, so a link leaving the repository or one
+    /// left dangling answered "nothing here" and the file was skipped without a
+    /// word. Asking about the entry itself hands those cases to `read`, which
+    /// reports them.
     pub fn exists(&self, rel: &str) -> bool {
-        self.path(rel).exists()
+        std::fs::symlink_metadata(self.path(rel)).is_ok()
     }
 
     /// Read a file as text, recording anything that got in the way.
@@ -79,6 +85,23 @@ impl Ctx {
     /// is what keeps the file out of the clean list.
     pub fn read(&self, rel: &str, unit: &mut ScanUnit) -> Option<String> {
         match self.load(rel) {
+            Source::Text(text) => Some(text),
+            Source::Absent => None,
+            Source::Unreadable(reason) => {
+                unit.mark_unreadable(rel, reason);
+                None
+            }
+        }
+    }
+
+    /// Read a file a walker found, by the path it found it at.
+    ///
+    /// `rel` is only the name the report shows. Going back through it would
+    /// lose any file whose name is not UTF-8: the display name carries U+FFFD
+    /// where the real byte was, so the path rebuilt from it names nothing and
+    /// the file came back "absent" — a hook skipped without a word.
+    pub fn read_at(&self, path: &Path, rel: &str, unit: &mut ScanUnit) -> Option<String> {
+        match read_config(path, Some(&self.scan_root)) {
             Source::Text(text) => Some(text),
             Source::Absent => None,
             Source::Unreadable(reason) => {
@@ -103,56 +126,7 @@ impl Ctx {
     }
 
     fn load(&self, rel: &str) -> Source {
-        let path = self.path(rel);
-
-        let link_meta = match std::fs::symlink_metadata(&path) {
-            Ok(meta) => meta,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Source::Absent,
-            Err(e) => return Source::Unreadable(format!("cannot be opened: {e}")),
-        };
-
-        // A link inside the repository is ordinary — monorepos share one config
-        // between workspaces that way. One that leaves it is reported and not
-        // followed: its contents are not what someone is about to clone, and
-        // resolving it would let a repository make this tool read arbitrary
-        // files on the machine running it.
-        if link_meta.file_type().is_symlink() {
-            match std::fs::canonicalize(&path) {
-                Ok(target) if target.starts_with(&self.scan_root) => {}
-                Ok(target) => {
-                    return Source::Unreadable(format!(
-                        "symbolic link leaving the repository, to {} — not followed",
-                        display(&target)
-                    ));
-                }
-                Err(e) => return Source::Unreadable(format!("broken symbolic link: {e}")),
-            }
-        }
-
-        let meta = match std::fs::metadata(&path) {
-            Ok(meta) => meta,
-            Err(e) => return Source::Unreadable(format!("cannot be opened: {e}")),
-        };
-
-        if !meta.is_file() {
-            return Source::Unreadable("not a regular file".into());
-        }
-
-        if meta.len() > MAX_CONFIG_BYTES {
-            return Source::Unreadable(format!(
-                "{} bytes, past the {} MiB onopen will read as configuration",
-                meta.len(),
-                MAX_CONFIG_BYTES / (1024 * 1024)
-            ));
-        }
-
-        match std::fs::read(&path) {
-            Ok(bytes) => match decode(&bytes) {
-                Some(text) => Source::Text(text),
-                None => Source::Unreadable("not text in any encoding onopen reads".into()),
-            },
-            Err(e) => Source::Unreadable(format!("cannot be read: {e}")),
-        }
+        read_config(&self.path(rel), Some(&self.scan_root))
     }
 
     /// Turn an absolute path back into a display path relative to the root.
@@ -160,6 +134,104 @@ impl Ctx {
         let raw = p.strip_prefix(&self.root).unwrap_or(p).to_string_lossy();
         crate::normalize_display_path(&raw).unwrap_or_else(|| raw.replace('\\', "/"))
     }
+}
+
+/// Read one configuration file, refusing everything that is not one.
+///
+/// Every file onopen reads from a repository goes through here, `.onopenignore`
+/// included, so the same four refusals hold everywhere:
+///
+/// - Only a regular file is read. A FIFO, a socket or a device (`/dev/zero`,
+///   `NUL`) named like a config would block the scan forever or feed it
+///   without end.
+/// - Past [`MAX_CONFIG_BYTES`] it is not configuration.
+/// - With a `scan_root`, the file has to resolve inside it. That is checked on
+///   the resolved path, not only when the last component is a link: a
+///   `.vscode` directory that is itself a link — or, on Windows, a junction,
+///   which needs no privilege to create — leads out of the repository just as
+///   well, and `tasks.json` inside it is not a link at all.
+/// - The bytes are decoded the way editors decode them, or refused.
+pub(crate) fn read_config(path: &Path, scan_root: Option<&Path>) -> Source {
+    let link_meta = match std::fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Source::Absent,
+        Err(e) => return Source::Unreadable(format!("cannot be opened: {e}")),
+    };
+
+    // A link inside the repository is ordinary — monorepos share one config
+    // between workspaces that way. One that leaves it is reported and not
+    // followed: its contents are not what someone is about to clone, and
+    // resolving it would let a repository make this tool read arbitrary files
+    // on the machine running it.
+    if let Some(scan_root) = scan_root {
+        let is_link = link_meta.file_type().is_symlink();
+        match std::fs::canonicalize(path) {
+            Ok(target) if target.starts_with(scan_root) => {}
+            Ok(target) if is_link => {
+                return Source::Unreadable(format!(
+                    "symbolic link leaving the repository, to {} — not followed",
+                    display(&target)
+                ));
+            }
+            Ok(target) => {
+                return Source::Unreadable(format!(
+                    "reached through a directory link leaving the repository, to {} — not followed",
+                    display(&target)
+                ));
+            }
+            Err(e) if is_link => return Source::Unreadable(format!("broken symbolic link: {e}")),
+            Err(e) => return Source::Unreadable(format!("cannot be resolved: {e}")),
+        }
+    }
+
+    let meta = match std::fs::metadata(path) {
+        Ok(meta) => meta,
+        Err(e) => return Source::Unreadable(format!("cannot be opened: {e}")),
+    };
+
+    if !meta.is_file() {
+        return Source::Unreadable("not a regular file".into());
+    }
+
+    if meta.len() > MAX_CONFIG_BYTES {
+        return Source::Unreadable(format!(
+            "{} bytes, past the {} MiB onopen will read as configuration",
+            meta.len(),
+            MAX_CONFIG_BYTES / (1024 * 1024)
+        ));
+    }
+
+    // Read through a limit as well as checking the length first: the file can
+    // grow between the two calls, and the length of some special files says
+    // nothing about how much they will yield.
+    let mut bytes = Vec::new();
+    let read = std::fs::File::open(path).and_then(|file| {
+        use std::io::Read;
+        file.take(MAX_CONFIG_BYTES + 1).read_to_end(&mut bytes)
+    });
+    match read {
+        Ok(_) if bytes.len() as u64 > MAX_CONFIG_BYTES => Source::Unreadable(format!(
+            "grew past the {} MiB onopen will read as configuration while being read",
+            MAX_CONFIG_BYTES / (1024 * 1024)
+        )),
+        Ok(_) => match decode(&bytes) {
+            Some(text) => Source::Text(text),
+            None => Source::Unreadable("not text in any encoding onopen reads".into()),
+        },
+        Err(e) => Source::Unreadable(format!("cannot be read: {e}")),
+    }
+}
+
+/// Whether a directory entry should be read as a file.
+///
+/// Walkers that do not follow links see a link as neither file nor directory,
+/// so `file_type().is_file()` alone skipped every linked hook script and
+/// `conftest.py` without a word — and git runs a linked hook as readily as a
+/// copied one. A link counts when what it points at is a file; where it points
+/// is `read_config`'s question, and it reports the answer.
+pub fn is_file_entry(path: &Path, file_type: std::fs::FileType) -> bool {
+    file_type.is_file()
+        || (file_type.is_symlink() && std::fs::metadata(path).is_ok_and(|m| m.is_file()))
 }
 
 /// Decode the byte order marks real editors emit.

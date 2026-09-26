@@ -62,11 +62,15 @@ fn scan_pth_files(ctx: &Ctx, unit: &mut ScanUnit) {
     };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
-        if !name.ends_with(".pth") || !entry.file_type().is_ok_and(|t| t.is_file()) {
+        if !name.ends_with(".pth")
+            || !entry
+                .file_type()
+                .is_ok_and(|t| super::is_file_entry(&entry.path(), t))
+        {
             continue;
         }
         let rel = ctx.rel(&entry.path());
-        let Some(source) = ctx.read(&rel, unit) else {
+        let Some(source) = ctx.read_at(&entry.path(), &rel, unit) else {
             continue;
         };
         let Some(preview) = source
@@ -167,11 +171,13 @@ fn scan_conftest(ctx: &Ctx, unit: &mut ScanUnit) {
         .filter_entry(|e| e.file_name().to_str().is_none_or(|n| !SKIP.contains(&n)))
         .flatten()
     {
-        if !entry.file_type().is_file() || entry.file_name() != "conftest.py" {
+        if entry.file_name() != "conftest.py"
+            || !super::is_file_entry(entry.path(), entry.file_type())
+        {
             continue;
         }
         let rel = ctx.rel(entry.path());
-        let Some(source) = ctx.read(&rel, unit) else {
+        let Some(source) = ctx.read_at(entry.path(), &rel, unit) else {
             continue;
         };
         if let Some(preview) = meaningful(&source) {

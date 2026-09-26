@@ -1,0 +1,126 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/NULVEC/onopen/blob/main/docs/schema/report-v1.json",
+  "title": "onopen --json report, schema_version 1",
+  "description": "What `onopen --json` prints. Fields are only ever added within schema_version 1; consumers must ignore fields they do not know. See docs/CONTRACT.md.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "tool",
+    "version",
+    "root",
+    "findings",
+    "suppressed",
+    "unreadable",
+    "stale_ignore_lines",
+    "summary"
+  ],
+  "properties": {
+    "schema_version": {
+      "description": "Shape of this document. Changes only on a breaking change.",
+      "type": "integer",
+      "enum": [1]
+    },
+    "tool": {
+      "type": "string",
+      "enum": ["onopen"]
+    },
+    "version": {
+      "description": "Version of onopen that produced the report (semver).",
+      "type": "string"
+    },
+    "root": {
+      "description": "The path that was scanned, as given on the command line.",
+      "type": "string"
+    },
+    "findings": {
+      "description": "Execution paths found, loudest first.",
+      "type": "array",
+      "items": { "$ref": "#/definitions/finding" }
+    },
+    "suppressed": {
+      "description": "Findings an ignore file silenced. Counted and carried, never dropped.",
+      "type": "array",
+      "items": { "$ref": "#/definitions/finding" }
+    },
+    "unreadable": {
+      "description": "Configuration files that exist and could not be read. Any entry here makes the exit code 2.",
+      "type": "array",
+      "items": { "$ref": "#/definitions/unreadable" }
+    },
+    "stale_ignore_lines": {
+      "description": "1-based lines of the ignore file that silenced nothing in this run.",
+      "type": "array",
+      "items": { "type": "integer" }
+    },
+    "summary": { "$ref": "#/definitions/summary" }
+  },
+  "definitions": {
+    "finding": {
+      "type": "object",
+      "required": ["rule", "file", "trigger", "command", "severity", "note"],
+      "properties": {
+        "rule": {
+          "description": "Stable rule id, e.g. `vscode/task-run-on-folder-open`.",
+          "type": "string"
+        },
+        "file": {
+          "description": "Path relative to the scanned root, `/`-separated, exact (not escaped).",
+          "type": "string"
+        },
+        "trigger": {
+          "description": "What makes it run. Whitespace collapsed, at most 120 characters.",
+          "type": "string"
+        },
+        "command": {
+          "description": "What would run. Whitespace collapsed, at most 120 characters, otherwise exact.",
+          "type": "string"
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["immediate", "deferred", "note"]
+        },
+        "note": {
+          "description": "One line on why this is an execution path. Wording may change.",
+          "type": "string"
+        }
+      }
+    },
+    "unreadable": {
+      "type": "object",
+      "required": ["file", "reason"],
+      "properties": {
+        "file": {
+          "description": "Path relative to the scanned root, `/`-separated.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why it could not be read. At most about 400 characters. Wording may change.",
+          "type": "string"
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "immediate",
+        "deferred",
+        "note",
+        "files_cleared",
+        "suppressed",
+        "unreadable"
+      ],
+      "properties": {
+        "immediate": { "type": "integer" },
+        "deferred": { "type": "integer" },
+        "note": { "type": "integer" },
+        "files_cleared": {
+          "description": "Configuration files read that contained no execution path.",
+          "type": "integer"
+        },
+        "suppressed": { "type": "integer" },
+        "unreadable": { "type": "integer" }
+      }
+    }
+  }
+}

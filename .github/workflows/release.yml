@@ -38,10 +38,30 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      # A binary that fails its own test suite has no business being published.
-      - run: cargo test --all-targets
+      # Anyone should be able to rebuild a release and get the same bytes, so
+      # nothing about the build machine may leak into the binary: the time
+      # comes from the tagged commit, the checkout and cargo paths are
+      # rewritten to fixed names, and the lockfile is used exactly as
+      # committed. strip, lto and codegen-units = 1 are in Cargo.toml.
+      - name: Pin the build to the commit
+        shell: bash
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "${GITHUB_ENV}"
 
-      - run: cargo build --release --target ${{ matrix.target }}
+      # A binary that fails its own test suite has no business being published.
+      - run: cargo test --all-targets --locked
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          flags="--remap-path-prefix=${GITHUB_WORKSPACE}=/onopen"
+          flags="${flags} --remap-path-prefix=${CARGO_HOME:-${HOME}/.cargo}=/cargo"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            # The MSVC linker stamps the build time into the PE header unless
+            # told to derive it from the content instead.
+            flags="${flags} -C link-arg=/Brepro"
+          fi
+          RUSTFLAGS="${flags}" cargo build --release --locked --target ${{ matrix.target }}
 
       # One archive shape per platform, named so a download URL can be built
       # from the target triple alone.
@@ -59,10 +79,22 @@ jobs:
           fi
           cp README.md LICENSE "dist/${stem}/"
           cd dist
+          # Archive metadata is normalised as far as each platform's tools
+          # allow: file times from the commit, no owner, no gzip timestamp.
+          # The binary inside is what has to reproduce; this keeps the
+          # archives from differing for no reason.
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            stamp="$(date -u -r "${SOURCE_DATE_EPOCH}" +%Y%m%d%H%M.%S)"
+          else
+            stamp="$(date -u -d "@${SOURCE_DATE_EPOCH}" +%Y%m%d%H%M.%S)"
+          fi
+          find "${stem}" -exec touch -t "${stamp}" {} +
           if [ "${{ runner.os }}" = "Windows" ]; then
             7z a "${stem}.zip" "${stem}" > /dev/null
+          elif [ "${{ runner.os }}" = "Linux" ]; then
+            tar --sort=name --owner=0 --group=0 --numeric-owner -cf - "${stem}" | gzip -9n > "${stem}.tar.gz"
           else
-            tar -czf "${stem}.tar.gz" "${stem}"
+            tar --uid 0 --gid 0 --uname "" --gname "" -cf - "${stem}" | gzip -9n > "${stem}.tar.gz"
           fi
           rm -rf "${stem}"
 
@@ -90,6 +122,24 @@ jobs:
           merge-multiple: true
           path: dist
 
+      # A software bill of materials: every crate compiled into the binaries,
+      # with versions and licences, for every published platform at once.
+      # Generated from Cargo.lock, so it describes exactly what was built.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: src
+      - uses: dtolnay/rust-toolchain@bc540ba06a4ccee415bb241490e0b25ee8e7d315 # stable
+      - name: SBOM
+        id: sbom
+        run: |
+          set -euo pipefail
+          cargo install cargo-cyclonedx --version 0.5.9 --locked
+          version="${GITHUB_REF_NAME#v}"
+          cd src
+          cargo cyclonedx --format json --spec-version 1.5 --target all --override-filename "onopen-${version}.cdx"
+          mv "onopen-${version}.cdx.json" ../dist/
+          echo "path=dist/onopen-${version}.cdx.json" >> "${GITHUB_OUTPUT}"
+
       - name: Checksums
         working-directory: dist
         run: sha256sum * > SHA256SUMS
@@ -98,15 +148,25 @@ jobs:
         with:
           subject-path: "dist/onopen-*"
 
+      # Binds the SBOM to each archive, so `gh attestation verify
+      # --predicate-type https://cyclonedx.org/bom` answers "what is inside
+      # this download?" with a signed statement rather than a loose file.
+      - uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+          sbom-path: ${{ steps.sbom.outputs.path }}
+
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: dist/*
           generate_release_notes: true
           fail_on_unmatched_files: true
 
-  # `uses: NULVEC/onopen@v0` is how an action is normally pinned, and it only
+  # `uses: NULVEC/onopen@v1` is how an action is normally pinned, and it only
   # works if a major tag follows the latest release in that series. Moving it
-  # is deliberate: someone who pinned @v0 asked for the newest v0.x.
+  # is deliberate: someone who pinned @v1 asked for the newest v1.x.
   major-tag:
     needs: [publish, publish-crate]
     runs-on: ubuntu-latest
