@@ -11,6 +11,7 @@
 //! counted, reported, and listable; they are hidden, never forgotten.
 
 use crate::finding::Finding;
+use crate::scanners::{Source, read_config};
 use anyhow::{Context, Result};
 use globset::{Glob, GlobMatcher};
 use std::cell::Cell;
@@ -75,17 +76,28 @@ impl Suppressions {
 
         let shown = display(&path);
 
-        if !path.exists() {
+        // The default file comes from the repository being scanned, so it is
+        // held to the same rules as any config in it: a regular file, of a
+        // sane size, resolving inside the root. Read with `read_to_string`, a
+        // `.onopenignore` that was a FIFO hung the scan, one that was a link
+        // to `/dev/zero` never finished, and one linked out of the repository
+        // had whatever file it named parsed — and quoted back in the error.
+        // A path the user typed may live anywhere; it still has to be a file.
+        let scan_root = match explicit {
+            Some(_) => None,
+            None => Some(root.canonicalize().unwrap_or_else(|_| root.to_path_buf())),
+        };
+
+        let text = match read_config(&path, scan_root.as_deref()) {
+            Source::Text(text) => text,
             // An explicitly requested file that is not there is a mistake worth
             // reporting; the default one simply does not exist yet.
-            if explicit.is_some() {
-                anyhow::bail!("ignore file not found: {shown}");
+            Source::Absent if explicit.is_some() => {
+                anyhow::bail!("ignore file not found: {shown}")
             }
-            return Ok(Self::default());
-        }
-
-        let text =
-            std::fs::read_to_string(&path).with_context(|| format!("cannot read {shown}"))?;
+            Source::Absent => return Ok(Self::default()),
+            Source::Unreadable(reason) => anyhow::bail!("cannot read {shown}: {reason}"),
+        };
         Self::parse(&text).with_context(|| format!("in {shown}"))
     }
 

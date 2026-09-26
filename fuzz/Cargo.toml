@@ -19,3 +19,10 @@ path = "fuzz_targets/gitindex.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "configs"
+path = "fuzz_targets/configs.rs"
+test = false
+doc = false
+bench = false

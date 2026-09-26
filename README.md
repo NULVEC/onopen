@@ -45,8 +45,18 @@ cargo install onopen --locked
 ```
 
 Release archives for Linux, macOS and Windows are also attached to each
-[GitHub release](https://github.com/NULVEC/onopen/releases). To build from a
-checkout:
+[GitHub release](https://github.com/NULVEC/onopen/releases), together with
+`SHA256SUMS`, a CycloneDX SBOM, and Sigstore attestations of how each archive
+was built and what it contains. Check one before running it:
+
+```sh
+gh attestation verify onopen-<version>-<target>.tar.gz --repo NULVEC/onopen \
+  --signer-workflow NULVEC/onopen/.github/workflows/release.yml
+```
+
+Release binaries are built with `--locked`, the commit's timestamp and
+machine-independent paths, so that rebuilding a tag gives the same binary.
+To build from a checkout:
 
 ```sh
 git clone https://github.com/NULVEC/onopen
@@ -117,6 +127,12 @@ execution path · `2` the scan is incomplete or failed. `--no-fail` turns
 findings into `0`; it deliberately does not hide an unreadable configuration
 file or another scan failure.
 
+**Stable output.** Exit codes, `--json` (with a published
+[schema](docs/schema/report-v1.json) and a `schema_version`) and `--sarif` are
+a contract for all of 1.x; [docs/CONTRACT.md](docs/CONTRACT.md) says exactly
+what may and may not change. The terminal view is for people and may change in
+any release.
+
 ## What it reads
 
 | Scanner | Files | Looking for |
@@ -151,6 +167,24 @@ JSONC, TOML and YAML are parsed as their actual formats. UTF-8 BOM and UTF-16
 files are decoded. Malformed, binary, oversized and out-of-repository symlinked
 configuration is reported as unreadable and exits `2`, never as clean.
 
+## Privacy
+
+onopen sends nothing anywhere, and you can check that rather than take our
+word for it.
+
+- **No network.** There is no networking code in onopen and none in its
+  dependency tree. `deny.toml` bans every HTTP, WebSocket, TLS, DNS, socket and
+  telemetry crate by name, so `cargo deny check bans` fails in CI the moment one
+  arrives, directly or transitively.
+- **No telemetry, no update checks, no crash reports.**
+- **It only reads.** The scanned tree is opened read-only; onopen writes the
+  report to stdout and errors to stderr, and nothing else. It creates no cache,
+  lock or log file, in the repository or anywhere on your machine.
+- **It reads almost nothing about you.** The only environment variable it
+  looks at is `NO_COLOR`. It does not read your global Git configuration,
+  your home directory, credentials or tokens; `.onopenignore` comes from the
+  scanned root, or from the file you pass with `--ignore-file`.
+
 ## In CI
 
 ```yaml
@@ -167,15 +201,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: NULVEC/onopen@v0
+      - uses: NULVEC/onopen@v1
 ```
 
 On a repository that already has findings, start with
 `fail-on-findings: false`: the report still reaches the Security tab, the
 build stays green, and you decide what to silence before turning the gate on.
 
-The action verifies the digest of the binary it downloads before running it.
-A tool whose argument is that you should know what you are about to run has no
+The action verifies the binary it downloads before running it: the digest
+against `SHA256SUMS`, and the Sigstore attestation that it was built by this
+repository's release workflow from the tag you asked for. A tool whose argument is that you should know what you are about to run has no
 business skipping that step itself.
 
 ## Known limits

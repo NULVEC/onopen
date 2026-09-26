@@ -91,7 +91,7 @@ fn scan_jetbrains_startup(ctx: &Ctx, unit: &mut ScanUnit) {
     let Some(text) = ctx.read(rel, unit) else {
         return;
     };
-    let document = match roxmltree::Document::parse(&text) {
+    let document = match crate::safeparse::xml(&text) {
         Ok(document) => document,
         Err(e) => {
             unit.mark_unreadable(rel, format!("not parseable as XML: {e}"));
@@ -137,7 +137,7 @@ fn resolve_run_configuration(ctx: &Ctx, name: &str, unit: &mut ScanUnit) -> Opti
         return None;
     }
     let text = ctx.read(&rel, unit)?;
-    let document = match roxmltree::Document::parse(&text) {
+    let document = match crate::safeparse::xml(&text) {
         Ok(document) => document,
         Err(e) => {
             unit.mark_unreadable(&rel, format!("not parseable as XML: {e}"));
@@ -171,7 +171,7 @@ fn scan_jetbrains_watchers(ctx: &Ctx, unit: &mut ScanUnit) {
     let Some(text) = ctx.read(rel, unit) else {
         return;
     };
-    let document = match roxmltree::Document::parse(&text) {
+    let document = match crate::safeparse::xml(&text) {
         Ok(document) => document,
         Err(e) => {
             unit.mark_unreadable(rel, format!("not parseable as XML: {e}"));

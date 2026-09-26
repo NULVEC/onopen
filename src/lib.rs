@@ -18,9 +18,11 @@ pub mod finding;
 pub mod gitindex;
 pub mod jsonc;
 pub mod report;
+pub mod safeparse;
 pub mod sarif;
 pub mod scanners;
 pub mod suppress;
+pub mod visible;
 
 use anyhow::{Result, bail};
 use finding::ScanUnit;
