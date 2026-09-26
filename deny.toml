@@ -27,6 +27,42 @@ allow = [
 multiple-versions = "warn"
 # A wildcard version is an unpinned dependency by another name.
 wildcards = "deny"
+# onopen never opens a network connection (see "Privacy" in the README). That
+# promise is only worth something if nobody can break it by accident, so every
+# crate whose job is to talk to the network is refused here, directly or as a
+# transitive dependency: `cargo deny check bans` fails the moment one arrives.
+deny = [
+    { crate = "reqwest", reason = "HTTP client: onopen makes no network connections" },
+    { crate = "hyper", reason = "HTTP implementation: onopen makes no network connections" },
+    { crate = "hyper-util", reason = "HTTP implementation: onopen makes no network connections" },
+    { crate = "h2", reason = "HTTP/2 implementation: onopen makes no network connections" },
+    { crate = "h3", reason = "HTTP/3 implementation: onopen makes no network connections" },
+    { crate = "quinn", reason = "QUIC implementation: onopen makes no network connections" },
+    { crate = "ureq", reason = "HTTP client: onopen makes no network connections" },
+    { crate = "curl", reason = "libcurl bindings: onopen makes no network connections" },
+    { crate = "curl-sys", reason = "libcurl bindings: onopen makes no network connections" },
+    { crate = "isahc", reason = "HTTP client: onopen makes no network connections" },
+    { crate = "attohttpc", reason = "HTTP client: onopen makes no network connections" },
+    { crate = "surf", reason = "HTTP client: onopen makes no network connections" },
+    { crate = "http-client", reason = "HTTP client abstraction: onopen makes no network connections" },
+    { crate = "awc", reason = "HTTP client: onopen makes no network connections" },
+    { crate = "minreq", reason = "HTTP client: onopen makes no network connections" },
+    { crate = "tungstenite", reason = "WebSocket client: onopen makes no network connections" },
+    { crate = "tokio-tungstenite", reason = "WebSocket client: onopen makes no network connections" },
+    { crate = "tokio", reason = "async runtime whose main use is sockets; onopen is synchronous: onopen makes no network connections" },
+    { crate = "async-std", reason = "async runtime with networking: onopen makes no network connections" },
+    { crate = "smol", reason = "async runtime with networking: onopen makes no network connections" },
+    { crate = "mio", reason = "non-blocking socket I/O: onopen makes no network connections" },
+    { crate = "socket2", reason = "raw socket API: onopen makes no network connections" },
+    { crate = "native-tls", reason = "TLS stack: onopen makes no network connections" },
+    { crate = "openssl", reason = "TLS stack: onopen makes no network connections" },
+    { crate = "openssl-sys", reason = "TLS stack: onopen makes no network connections" },
+    { crate = "rustls", reason = "TLS stack: onopen makes no network connections" },
+    { crate = "trust-dns-resolver", reason = "DNS resolver: onopen makes no network connections" },
+    { crate = "hickory-resolver", reason = "DNS resolver: onopen makes no network connections" },
+    { crate = "sentry", reason = "crash reporting sends data out: onopen makes no network connections" },
+    { crate = "opentelemetry", reason = "telemetry export: onopen makes no network connections" },
+]
 
 [sources]
 unknown-registry = "deny"

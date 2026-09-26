@@ -151,6 +151,24 @@ JSONC, TOML and YAML are parsed as their actual formats. UTF-8 BOM and UTF-16
 files are decoded. Malformed, binary, oversized and out-of-repository symlinked
 configuration is reported as unreadable and exits `2`, never as clean.
 
+## Privacy
+
+onopen sends nothing anywhere, and you can check that rather than take our
+word for it.
+
+- **No network.** There is no networking code in onopen and none in its
+  dependency tree. `deny.toml` bans every HTTP, WebSocket, TLS, DNS, socket and
+  telemetry crate by name, so `cargo deny check bans` fails in CI the moment one
+  arrives, directly or transitively.
+- **No telemetry, no update checks, no crash reports.**
+- **It only reads.** The scanned tree is opened read-only; onopen writes the
+  report to stdout and errors to stderr, and nothing else. It creates no cache,
+  lock or log file, in the repository or anywhere on your machine.
+- **It reads almost nothing about you.** The only environment variable it
+  looks at is `NO_COLOR`. It does not read your global Git configuration,
+  your home directory, credentials or tokens; `.onopenignore` comes from the
+  scanned root, or from the file you pass with `--ignore-file`.
+
 ## In CI
 
 ```yaml
